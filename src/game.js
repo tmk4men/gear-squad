@@ -303,28 +303,66 @@ function generateMall() {
     for (const s of MALL.stairs) if (s.k === li) { const za = s.z0 - s.dir * 2, zb = s.z0 + s.dir * NSTEP * STEP_D; /* 穴は最後の段の位置で止める（先まで開けると上り切った所で落ちる） */ rects = subtract(rects, { x0: s.x - s.w / 2 - 0.5, x1: s.x + s.w / 2 + 0.5, z0: Math.min(za, zb), z1: Math.max(za, zb) }) }
     for (const q of rects) add({ x: (q.x0 + q.x1) / 2, z: (q.z0 + q.z1) / 2, w: q.x1 - q.x0, d: q.z1 - q.z0, h: top, y0: top - SL, kind: 'mfloor', roof: top === RH })
   })
+  // 吹き抜けを渡る橋: 2階は南北に、3階は東西に（幅4m、両側に手すり）
+  for (const [top, along] of [[MALL.floors[1], 'z'], [MALL.floors[2], 'x']]) {
+    const len = along === 'z' ? H.z * 2 : H.x * 2, bw = 4
+    add(along === 'z' ? { x: 0, z: 0, w: bw, d: len, h: top, y0: top - SL, kind: 'mfloor', bridge: true } : { x: 0, z: 0, w: len, d: bw, h: top, y0: top - SL, kind: 'mfloor', bridge: true })
+    for (const sd of [1, -1]) add(along === 'z' ? { x: sd * (bw / 2 - 0.15), z: 0, w: 0.3, d: len, h: top + 1.0, y0: top, kind: 'mrail' } : { x: 0, z: sd * (bw / 2 - 0.15), w: len, d: 0.3, h: top + 1.0, y0: top, kind: 'mrail' })
+  }
   // 階段（段は床から積む。最後の段の上面が上の階の床の上面）
   for (const s of MALL.stairs) {
-    const fl = MALL.floors[s.k]
+    const fl = MALL.floors[s.k], top = MALL.floors[s.k + 1], zt = s.z0 + s.dir * NSTEP * STEP_D
+    // 上り切った所の L 字の壁（吹き抜け側の横と、正面の半分）。出口を正面から撃たれないように
+    const cx = -Math.sign(s.x) // 吹き抜け（x=0）側
+    add({ x: s.x + cx * (s.w / 2 + 0.4), z: zt + s.dir * 2, w: 0.4, d: 4, h: top + 2.4, y0: top, kind: 'mwall', guard: true })
+    add({ x: s.x + cx * (s.w / 4), z: zt + s.dir * 4.2, w: s.w / 2 + 0.8, d: 0.4, h: top + 2.4, y0: top, kind: 'mwall', guard: true })
     for (let i = 1; i <= NSTEP; i++) add({ x: s.x, z: s.z0 + s.dir * (i - 0.5) * STEP_D, w: s.w, d: STEP_D, h: fl + i * STEP_R, y0: fl || undefined, kind: 'mstep' })
   }
   // 吹き抜けと階段の穴のまわりの手すり（1m。体の半分が隠れる）
   for (const fl of MALL.floors.slice(1)) {
-    for (const sz of [1, -1]) add({ x: 0, z: sz * (H.z + 0.15), w: H.x * 2, d: 0.3, h: fl + 1.0, y0: fl, kind: 'mrail' })
-    for (const sx of [1, -1]) add({ x: sx * (H.x + 0.15), z: 0, w: 0.3, d: H.z * 2, h: fl + 1.0, y0: fl, kind: 'mrail' })
+    // 橋の付け根は手すりを開ける（2階は南北の手すり、3階は東西の手すり）
+    const gap = 2.2, nsGap = fl === MALL.floors[1], ewGap = fl === MALL.floors[2]
+    for (const sz of [1, -1]) {
+      if (nsGap) for (const sx of [1, -1]) add({ x: sx * (gap + (H.x - gap) / 2), z: sz * (H.z + 0.15), w: H.x - gap, d: 0.3, h: fl + 1.0, y0: fl, kind: 'mrail' })
+      else add({ x: 0, z: sz * (H.z + 0.15), w: H.x * 2, d: 0.3, h: fl + 1.0, y0: fl, kind: 'mrail' })
+    }
+    for (const sx of [1, -1]) {
+      if (ewGap) for (const sz of [1, -1]) add({ x: sx * (H.x + 0.15), z: sz * (gap + (H.z - gap) / 2), w: 0.3, d: H.z - gap, h: fl + 1.0, y0: fl, kind: 'mrail' })
+      else add({ x: sx * (H.x + 0.15), z: 0, w: 0.3, d: H.z * 2, h: fl + 1.0, y0: fl, kind: 'mrail' })
+    }
     // 手すりの一部を広告板（2.4m）でふさぐ。上の階から吹き抜け全体を見下ろして撃てないように
     for (const s of [1, -1]) { add({ x: s * 10, z: s * (H.z + 0.15), w: 12, d: 0.35, h: fl + 2.4, y0: fl, kind: 'mwall', ad: true }); add({ x: s * (H.x + 0.15), z: -s * 8, w: 0.35, d: 10, h: fl + 2.4, y0: fl, kind: 'mwall', ad: true }) }
   }
-  // 店: 南北の壁ぞいに奥行き14m。仕切り壁と、通路側の上の看板壁（下は開いた店先）
+  // 店: 南北の壁ぞいに奥行き14m。区画で種類が決まる（中央=催事場、西=飲食、東=家電）。
+  // 仕切り壁の奥に裏口（幅3m）を開けて、隣の店と裏でつながる道にする
   const SHOP_D = 14, SHOP_W = 16
+  const zoneOf = x => Math.abs(x) < 40 ? 'event' : x < 0 ? 'food' : 'tech'
+  MALL.zoneOf = zoneOf
   for (const fl of MALL.floors) {
-    const ceil = fl + FH - SL
+    const ceil = fl + FH - SL, y0 = fl || undefined
     for (const sz of [1, -1]) {
       const back = sz * (MZ - T / 2), front = sz * (MZ - T / 2 - SHOP_D)
       for (let x = -MX + T / 2; x <= MX - SHOP_W; x += SHOP_W) {
-        add({ x, z: (back + front) / 2, w: 0.3, d: SHOP_D, h: ceil, y0: fl || undefined, kind: 'mwall' })
-        const door = fl === 0 && [-80, -40, 0, 40, 80].some(d => Math.abs(x + SHOP_W / 2 - d) < 9) // 外の入口の前は店にしない（通り抜けられる）
-        if (!door) add({ x: x + SHOP_W / 2, z: front, w: SHOP_W - 0.3, d: 0.3, h: ceil, y0: fl + 3.4, kind: 'mwall', sign: true, shop: Math.floor(r() * 8) })
+        // 仕切り壁（裏口のぶん2つに分ける）
+        const gapC = back - sz * 2.5
+        const segA = [front, gapC - sz * 1.5], segB = [gapC + sz * 1.5, back]
+        for (const [a, b] of [segA, segB]) add({ x, z: (a + b) / 2, w: 0.3, d: Math.abs(b - a), h: ceil, y0, kind: 'mwall' })
+        const cx = x + SHOP_W / 2, zone = zoneOf(cx)
+        const door = fl === 0 && [-80, -40, 0, 40, 80].some(d => Math.abs(cx - d) < 9)
+        if (door) continue // 外の入口の前は店にしない（通り抜けられる）
+        add({ x: cx, z: front, w: SHOP_W - 0.3, d: 0.3, h: ceil, y0: fl + 3.4, kind: 'mwall', sign: true, zone })
+        const mid = (front + back) / 2
+        if (zone === 'tech') {
+          // 家電: 腰の高さの棚が2列
+          for (const k of [-1, 1]) add({ x: cx, z: mid + k * 3, w: SHOP_W - 5, d: 1.0, h: fl + 1.15, y0, kind: 'mrail', counter: true, shelf: true })
+        } else if (zone === 'food') {
+          // 飲食: 店の真ん中を横切るカウンターと、奥の厨房の壁（片側だけ抜けられる）
+          add({ x: cx - 2, z: mid - sz * 1.5, w: SHOP_W - 7, d: 1.0, h: fl + 1.1, y0, kind: 'mrail', counter: true })
+          add({ x: cx + 1.5, z: mid + sz * 3, w: SHOP_W - 6, d: 0.3, h: ceil, y0, kind: 'mwall', kitchen: true })
+        } else {
+          // 催事場: 立て看板（2.4m）が点在
+          for (const [ox, oz] of [[-4, -2], [3, 1], [-1, 4]]) add({ x: cx + ox, z: mid + sz * oz, w: 2.4, d: 0.3, h: fl + 2.4, y0, kind: 'mwall', panel: true, zone })
+        }
       }
     }
   }
@@ -338,6 +376,9 @@ function generateMall() {
     kiosks.push({ x, z, w, d, h: fl + 1.1, y0: fl || undefined, kind: 'mrail', counter: true })
   }
   kiosks.push({ x: 0, z: 0, w: 10, d: 7, h: 0.9, kind: 'mrail', counter: true }) // 1階の噴水の縁
+  // 吹き抜けの1階: 十字に売店（屋根3.4m。屋根に乗ってエアステップで上の階へ抜けられる）と、低い遮蔽物
+  for (const [kx, kz, kw, kd] of [[-17, 0, 5, 6], [0, 13, 6, 4]]) kiosks.push({ x: kx, z: kz, w: kw, d: kd, h: 3.4, kind: 'mwall', kiosk: true })
+  for (const [kx, kz] of [[-9, 8], [9, 8], [-22, -12]]) kiosks.push({ x: kx, z: kz, w: 3, d: 1.2, h: 1.1, kind: 'mrail', counter: true })
   // 通路の中央に植え込みとベンチを約10m おきに並べ、見通しを40m 以上続けない（遮蔽の鎖）
   for (const fl of MALL.floors) for (let x = -116; x <= -6; x += 11) for (const z of [-60, -36]) {
     if (MALL.stairs.some(s => Math.abs(x - s.x) < 7 && Math.abs(z) < 14) || (Math.abs(x) < 32 && Math.abs(z) < 24)) continue

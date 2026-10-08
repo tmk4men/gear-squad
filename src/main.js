@@ -2,10 +2,10 @@
 // 時間で進むものは全部固定60Hzステップの中で進める（draw では状態を描くだけ）。
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { buildCity } from './city.js?v=202610080558'
+import { buildCity } from './city.js?v=202610080751'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import * as G from './game.js?v=202610080558'
+import * as G from './game.js?v=202610080751'
 
 const $ = id => document.getElementById(id)
 const clamp01 = v => Math.max(0, Math.min(1, v))
@@ -249,7 +249,7 @@ const RUN_NATURAL = 2.51 * BODY_K
 const OVERLAYS = ['Jump', 'Punch', 'Death', 'Dance', 'ThumbsUp', 'Wave', 'Yes', 'No']
 
 async function loadRobot() {
-  robotGltf = await new GLTFLoader().loadAsync('./models/RobotExpressive.glb?v=202610080558')
+  robotGltf = await new GLTFLoader().loadAsync('./models/RobotExpressive.glb?v=202610080751')
 }
 
 // 見た目（自機だけ）: ヘルメットの形・戦闘服の色・バイザーの光。装甲の色は隊の見分けなので変えない
@@ -1231,6 +1231,8 @@ function drawRadar(st) {
     x.fillStyle = `rgba(255,107,94,${(0.9 * k).toFixed(2)})`
     x.beginPath(); x.arc(R + px, R + py, 2.6, 0, 7); x.fill()
   }
+  // モールでは今いる階を出す
+  if (st.stage === 'mall') { const fl = Math.round(f.y / 6.8) + 1; x.fillStyle = 'rgba(255,197,49,.95)'; x.font = '900 13px "Oxanium",sans-serif'; x.textAlign = 'center'; x.fillText(`${fl}F`, R, H - 12); x.textAlign = 'start' }
   // 縁と視野
   x.strokeStyle = 'rgba(255,255,255,.5)'; x.lineWidth = 1.5
   x.beginPath(); x.arc(R, R, R - 1, 0, 7); x.stroke()
@@ -1383,7 +1385,7 @@ function drawHud(st) {
   const t = st.units[me.targetId]
   $('reticle').classList.toggle('locked', !!(me.alive && t && t.alive))
   $('reticle').style.visibility = me.alive ? '' : 'hidden'
-  $('hint').hidden = !(mode === 'play' && st.t < 9 && me.alive && !window.__tsNoHint)
+  $('hint').hidden = !(mode === 'play' && st.t > 3.2 && st.t < 11 && me.alive && !window.__tsNoHint) // 作戦開始の表示が消えてから出す
 }
 
 const tmpV = new THREE.Vector3()

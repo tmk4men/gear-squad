@@ -434,49 +434,79 @@ function mallTile(kind) {
   const t = texFrom(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t
 }
 function buildMall(scene, G, buildings) {
-  const floorTex = mallTile('floor'), glassTex = mallTile('glass')
-  const lit = (o) => Object.assign(o, { emissiveIntensity: o.emissiveIntensity ?? 0.22 })
+  // 同じ材質の部品は1つの形にまとめて描く（部品は1000近いので1つずつ描くと重い）。色の違う看板は頂点色
+  const floorTex = mallTile('floor'), glassTex = mallTile('glass'), ceilTex = mallTile('ceil')
+  const ZONE = { food: '#e5484d', tech: '#2f6bff', event: '#f0b020' }
+  const M = (o) => new THREE.MeshStandardMaterial(o)
   const mats = {
-    ext: new THREE.MeshStandardMaterial({ map: glassTex, roughness: 0.15, metalness: 0.55 }),
-    wall: lit(new THREE.MeshStandardMaterial({ color: '#efece6', roughness: 0.8, emissive: '#ffffff', emissiveIntensity: 0.12 })),
-    floor: lit(new THREE.MeshStandardMaterial({ map: floorTex, color: '#c9b9a0', roughness: 0.35, metalness: 0.05, emissive: '#ffffff', emissiveIntensity: 0.06 })),
-    floor2: lit(new THREE.MeshStandardMaterial({ map: floorTex, color: '#a7b6c4', roughness: 0.35, metalness: 0.05, emissive: '#ffffff', emissiveIntensity: 0.06 })),
-    floor3: lit(new THREE.MeshStandardMaterial({ map: floorTex, color: '#b9c7a9', roughness: 0.35, metalness: 0.05, emissive: '#ffffff', emissiveIntensity: 0.06 })),
-    edge: new THREE.MeshStandardMaterial({ color: '#2b3039', roughness: 0.5, metalness: 0.3 }),
-    nose: new THREE.MeshStandardMaterial({ color: '#e8b23a', roughness: 0.5 }),
-    ad: new THREE.MeshStandardMaterial({ color: '#2b3039', roughness: 0.4, emissive: '#ffffff', emissiveIntensity: 0.05 }),
-    plant: new THREE.MeshStandardMaterial({ color: '#4f7a3a', roughness: 0.8 }),
-    roof: new THREE.MeshStandardMaterial({ color: '#8f9690', roughness: 0.95 }),
-    step: new THREE.MeshStandardMaterial({ color: '#cfc9bd', roughness: 0.6, emissive: '#ffffff', emissiveIntensity: 0.08 }),
-    rail: new THREE.MeshStandardMaterial({ color: '#cfe3ee', transparent: true, opacity: 0.35, roughness: 0.1, metalness: 0.3, depthWrite: false }),
-    railTop: new THREE.MeshStandardMaterial({ color: '#9aa1a8', roughness: 0.3, metalness: 0.7 }),
-    ceil: new THREE.MeshStandardMaterial({ map: mallTile('ceil'), color: '#8f949b', roughness: 0.9, emissive: '#fff4dd', emissiveIntensity: 0.12 }),
-    counter: new THREE.MeshStandardMaterial({ color: '#b98a5c', roughness: 0.55, emissive: '#ffffff', emissiveIntensity: 0.06 }),
+    ext: M({ map: glassTex, roughness: 0.15, metalness: 0.55 }),
+    wall: M({ color: '#efece6', roughness: 0.8, emissive: '#ffffff', emissiveIntensity: 0.1 }),
+    edge: M({ color: '#2b3039', roughness: 0.5, metalness: 0.3 }),
+    floor1: M({ map: floorTex, color: '#c9b9a0', roughness: 0.35, emissive: '#ffffff', emissiveIntensity: 0.06 }),
+    floor2: M({ map: floorTex, color: '#a7b6c4', roughness: 0.35, emissive: '#ffffff', emissiveIntensity: 0.06 }),
+    floor3: M({ map: floorTex, color: '#b9c7a9', roughness: 0.35, emissive: '#ffffff', emissiveIntensity: 0.06 }),
+    roof: M({ color: '#8f9690', roughness: 0.95 }),
+    ceil: M({ map: ceilTex, color: '#8f949b', roughness: 0.9, emissive: '#fff4dd', emissiveIntensity: 0.12 }),
+    step: M({ color: '#cfc9bd', roughness: 0.6, emissive: '#ffffff', emissiveIntensity: 0.08 }),
+    nose: M({ color: '#e8b23a', roughness: 0.5 }),
+    rail: M({ color: '#cfe3ee', transparent: true, opacity: 0.35, roughness: 0.1, metalness: 0.3, depthWrite: false }),
+    railTop: M({ color: '#9aa1a8', roughness: 0.3, metalness: 0.7 }),
+    counter: M({ color: '#b98a5c', roughness: 0.55, emissive: '#ffffff', emissiveIntensity: 0.06 }),
+    shelf: M({ color: '#5d6b7a', roughness: 0.5, metalness: 0.3 }),
+    plant: M({ color: '#4f7a3a', roughness: 0.8 }),
+    ad: M({ color: '#2b3039', roughness: 0.4 }),
+    tint: M({ vertexColors: true, roughness: 0.5, emissive: '#ffffff', emissiveIntensity: 0.12 }), // 看板・立て看板・売店（頂点色）
   }
-  const boxUVw = (b, rep) => { const g = new THREE.BoxGeometry(b.w, b.h - (b.y0 || 0), b.d), uv = g.attributes.uv
-    for (let v = 0; v < uv.count; v++) { const f = Math.floor(v / 4), fw = f < 2 ? b.d : b.w, fh = f === 2 || f === 3 ? b.d : b.h - (b.y0 || 0); uv.setXY(v, uv.getX(v) * fw / rep, uv.getY(v) * fh / rep) } return g }
+  const lists = {}
+  const push = (key, geo, x, y, z, color) => {
+    geo.translate(x, y, z)
+    for (const k of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(k)) geo.deleteAttribute(k)
+    if (!geo.attributes.uv) geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2))
+    if (key === 'tint') { const c = new THREE.Color(color), a = new Float32Array(geo.attributes.position.count * 3); for (let i = 0; i < a.length; i += 3) { a[i] = c.r; a[i + 1] = c.g; a[i + 2] = c.b } geo.setAttribute('color', new THREE.BufferAttribute(a, 3)) }
+    ;(lists[key] ||= []).push(geo.index ? geo.toNonIndexed() : geo)
+  }
+  const boxRep = (w, h, d, rep) => { const g = new THREE.BoxGeometry(w, h, d), uv = g.attributes.uv
+    for (let v = 0; v < uv.count; v++) { const f = Math.floor(v / 4), fw = f < 2 ? d : w, fh = f === 2 || f === 3 ? d : h; uv.setXY(v, uv.getX(v) * fw / rep, uv.getY(v) * fh / rep) } return g }
+  const plane = (w, d, rep, up) => { const g = new THREE.PlaneGeometry(w, d).rotateX(up ? -Math.PI / 2 : Math.PI / 2), uv = g.attributes.uv; for (let v = 0; v < uv.count; v++) uv.setXY(v, uv.getX(v) * w / rep, uv.getY(v) * d / rep); return g }
   for (const b of SB) {
     if (!b.kind || b.kind[0] !== 'm') continue
-    const y0 = b.y0 || 0, hh = b.h - y0
-    let mesh
-    if (b.kind === 'mwall') {
-      if (b.ad) mesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, hh, b.d), mats.ad)
-      else if (b.sign) { mesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, hh, b.d), new THREE.MeshStandardMaterial({ color: MALL_SIGN[b.shop % MALL_SIGN.length], roughness: 0.5, emissive: MALL_SIGN[b.shop % MALL_SIGN.length], emissiveIntensity: 0.35 })) }
-      else mesh = new THREE.Mesh(b.ext ? boxUVw(b, 6) : new THREE.BoxGeometry(b.w, hh, b.d), b.ext ? mats.ext : mats.wall)
-    } else if (b.kind === 'mfloor') mesh = new THREE.Mesh(boxUVw(b, 4), b.roof ? [mats.wall, mats.wall, mats.roof, mats.ceil, mats.wall, mats.wall] : [mats.edge, mats.edge, b.h < 10 ? mats.floor2 : mats.floor3, mats.ceil, mats.edge, mats.edge]) // 上面は床（階ごとに色）、下面は天井板、縁は濃い帯
-    else if (b.kind === 'mstep') { mesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, hh, b.d), mats.step); const nose = new THREE.Mesh(new THREE.BoxGeometry(b.w, 0.04, 0.12), mats.nose); nose.position.set(b.x, b.h + 0.02, b.z - Math.sign(b.z || 1) * 0); scene.add(nose) } // 段の先に色の帯
+    const y0 = b.y0 || 0, hh = b.h - y0, cy = y0 + hh / 2
+    if (b.kind === 'mfloor') {
+      push('edge', new THREE.BoxGeometry(b.w, hh, b.d), b.x, cy, b.z)
+      push(b.roof ? 'roof' : b.h < 10 ? 'floor2' : 'floor3', plane(b.w, b.d, 4, true), b.x, b.h + 0.005, b.z)
+      push('ceil', plane(b.w, b.d, 4, false), b.x, y0 - 0.005, b.z)
+    } else if (b.kind === 'mstep') { push('step', new THREE.BoxGeometry(b.w, hh, b.d), b.x, cy, b.z); push('nose', new THREE.BoxGeometry(b.w, 0.04, 0.14), b.x, b.h + 0.02, b.z) }
     else if (b.kind === 'mrail') {
-      mesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, hh, b.d), b.planter ? mats.plant : b.counter ? mats.counter : mats.rail)
-      if (y0 && !b.counter) { const top = new THREE.Mesh(new THREE.BoxGeometry(b.w + 0.04, 0.06, b.d + 0.04), mats.railTop); top.position.set(b.x, b.h, b.z); scene.add(top) }
+      if (b.planter) push('plant', new THREE.BoxGeometry(b.w, hh, b.d), b.x, cy, b.z)
+      else if (b.shelf) push('shelf', new THREE.BoxGeometry(b.w, hh, b.d), b.x, cy, b.z)
+      else if (b.counter) push('counter', new THREE.BoxGeometry(b.w, hh, b.d), b.x, cy, b.z)
+      else { push('rail', new THREE.BoxGeometry(b.w, hh, b.d), b.x, cy, b.z); push('railTop', new THREE.BoxGeometry(b.w + 0.04, 0.06, b.d + 0.04), b.x, b.h, b.z) }
+    } else if (b.kind === 'mwall') {
+      if (b.ext) push('ext', boxRep(b.w, hh, b.d, 6), b.x, cy, b.z)
+      else if (b.sign) push('tint', new THREE.BoxGeometry(b.w, hh, b.d), b.x, cy, b.z, ZONE[b.zone] || '#888')
+      else if (b.panel) push('tint', new THREE.BoxGeometry(b.w, hh, b.d), b.x, cy, b.z, ZONE.event)
+      else if (b.kiosk) { push('tint', new THREE.BoxGeometry(b.w, hh - 0.3, b.d), b.x, y0 + (hh - 0.3) / 2, b.z, '#d9cdb8'); push('tint', new THREE.BoxGeometry(b.w + 0.6, 0.3, b.d + 0.6), b.x, b.h - 0.15, b.z, '#f0b020') }
+      else if (b.ad || b.guard) push('ad', new THREE.BoxGeometry(b.w, hh, b.d), b.x, cy, b.z)
+      else push('wall', new THREE.BoxGeometry(b.w, hh, b.d), b.x, cy, b.z)
     }
-    if (!mesh) continue
-    mesh.position.set(b.x, y0 + hh / 2, b.z)
-    mesh.castShadow = b.kind !== 'mrail'; mesh.receiveShadow = true
-    scene.add(mesh)
-    // カメラが壁や床を突き抜けないよう、当たりの箱だけ登録する（透かしはしない）
-    if (b.kind !== 'mrail') buildings.push({ b, id: b.id, objs: [mesh], mats: [], fade: 1, mesh, box: new THREE.Box3(new THREE.Vector3(b.x - b.w / 2, y0, b.z - b.d / 2), new THREE.Vector3(b.x + b.w / 2, b.h, b.z + b.d / 2)) })
+    // カメラが壁や床を突き抜けないよう、当たりの箱だけ登録する（透かしはしない）。低い物と手すりは入れない
+    if (b.kind !== 'mrail' && !(b.kind === 'mstep')) buildings.push({ b, id: b.id, objs: [], mats: [], fade: 1, mesh: null, box: new THREE.Box3(new THREE.Vector3(b.x - b.w / 2, y0, b.z - b.d / 2), new THREE.Vector3(b.x + b.w / 2, b.h, b.z + b.d / 2)) })
   }
-  // 1階の中の明かり（吹き抜けの真上から）
+  // 駐車場の車（車体・窓・タイヤ）
+  mats.car = M({ vertexColors: true, roughness: 0.35, metalness: 0.5 })
+  for (const b of SB) {
+    if (!b.car) continue
+    const long = b.d > b.w
+    const add2 = (geo, x, y, z, col) => { geo.translate(x, y, z); const c = new THREE.Color(col), a = new Float32Array(geo.attributes.position.count * 3); for (let i = 0; i < a.length; i += 3) { a[i] = c.r; a[i + 1] = c.g; a[i + 2] = c.b } geo.setAttribute('color', new THREE.BufferAttribute(a, 3)); (lists.car ||= []).push(geo.toNonIndexed()) }
+    add2(new THREE.BoxGeometry(b.w, 0.8, b.d), b.x, 0.55, b.z, CONT_COLORS[b.tint] || '#7d8790')
+    add2(new THREE.BoxGeometry(long ? b.w * 0.9 : b.w * 0.55, 0.6, long ? b.d * 0.55 : b.d * 0.9), b.x, 1.2, b.z, '#1c2633')
+    for (const [a, c] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) add2(new THREE.BoxGeometry(long ? 0.25 : 0.66, 0.66, long ? 0.66 : 0.25), b.x + a * (b.w / 2 - (long ? 0.1 : 0.9)), 0.33, b.z + c * (b.d / 2 - (long ? 0.9 : 0.1)), '#16181b')
+  }
+  for (const [k, list] of Object.entries(lists)) {
+    const m = new THREE.Mesh(mergeGeometries(list, false), mats[k])
+    m.castShadow = !['rail', 'ceil', 'floor2', 'floor3', 'roof'].includes(k); m.receiveShadow = true
+    scene.add(m)
+  }
   // 各階の天井の明かり（数を絞って、吹き抜けと東西の通路に）
   for (const fl of [0, 6.8, 13.6]) for (const lx of [-80, 0, 80]) { const lamp = new THREE.PointLight('#fff4e0', 28, 60, 1.6); lamp.position.set(lx, fl + 5.6, 0); scene.add(lamp) }
 }
@@ -558,6 +588,7 @@ export function buildCity(scene, G, stageKey = 'city') {
       }
       return
     }
+    if (b.car && STAGE === 'mall') return // モールの車は buildMall でまとめて描く
     if (b.cont || b.low || b.ware || b.crane || b.car) { buildings.push(industrial(scene, b, roofTile)); return }
     const k = i % half
     const flip = i >= half

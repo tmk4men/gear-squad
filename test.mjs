@@ -741,6 +741,17 @@ const mallSt = seed => { const st = G.createState(seed, { spawn: 'fixed', stage:
   for (let i = 0; i < 20; i++) for (const u of G.createState(300 + i, { stage: 'mall' }).units) if (Math.abs(u.x) > G.MALL.x || Math.abs(u.z) > G.MALL.z) outside++
   ok(outside === 0, '出撃位置は全部モールの中', outside)
 }
+{ // 2階の橋で吹き抜けを渡れる。店は裏口で隣とつながる
+  const st = mallSt(103), me = st.units[0]
+  put(me, 0, -G.MALL.hole.z - 3); me.y = G.MALL.floors[1]
+  for (let i = 0; i < 420; i++) G.step(st, { mx: 0, mz: 1 })
+  ok(me.z > G.MALL.hole.z && Math.abs(me.y - G.MALL.floors[1]) < 0.05, '2階の橋で吹き抜けを渡れる（落ちない）', `z=${me.z.toFixed(1)} y=${me.y.toFixed(2)}`)
+  // 北側の店の奥の通路を東へ歩くと、仕切りの裏口を通って隣の店へ抜けられる
+  const zBack = G.MALL.z - 0.3 - 2.5
+  put(me, -100, zBack); me.y = 0
+  for (let i = 0; i < 180; i++) G.step(st, { mx: 1, mz: 0 })
+  ok(me.x > -100 + 16, '店の裏口を通って隣の店へ抜けられる', `x=${me.x.toFixed(1)}`)
+}
 { // CPU はモールでも動ける（引っかかりが少なく、撃ち合いが起きる）
   let kills = 0, nan = 0
   for (let i = 0; i < 4; i++) { const st = G.createState(110 + i, { autoplay: true, stage: 'mall' }); let s = 0
