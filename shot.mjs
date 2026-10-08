@@ -122,7 +122,7 @@ if (scene !== 'title') {
   // 強制帰還の演出（自機の前の敵）: bail2 は0.2秒後、bail3 は0.6秒後
   if (scene === 'bail2' || scene === 'bail3') await page.evaluate(late => { const s = ts.raw(); for (const id of [1, 2, 4, 5]) { ts.place(id, 150, 150 - id); s.units[id].ai.think = 99 } window.__tsNoAuto = true; ts.place(0, 0, 40, { yaw: Math.PI }); ts.place(3, 0, 33); s.units[3].ai.think = 99; s.units[3].ai.targetId = -1; ts.look(Math.PI, 0.1); ts.run(5); s.units[3].en = 0.01; s.units[3].lastHitBy = 0; s.units[3].wounds.push({ rate: 1, t: 2 }); ts.run(late ? 36 : 12) }, scene === 'bail3')
   // 武器の持ち替え: 2番（銃）を持った後ろ姿
-  if (scene === 'swap') await page.evaluate(() => { const s = ts.raw(); for (const id of [1, 2, 3, 4, 5]) { ts.place(id, 150, 150 - id); s.units[id].ai.think = 99 } window.__tsNoAuto = true; ts.place(0, 0, 40, { yaw: Math.PI }); ts.look(Math.PI + 0.6, 0.1); dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit2' })); ts.run(10) })
+  if (scene === 'swap') await page.evaluate(() => { const s = ts.raw(); for (const id of [1, 2, 3, 4, 5]) { ts.place(id, 150, 150 - id); s.units[id].ai.think = 99 } window.__tsNoAuto = true; ts.place(0, 0, 40, { yaw: Math.PI }); ts.look(Math.PI + 0.6, 0.1); dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit2' })); ts.run(+(new URLSearchParams(location.search).get('n') || 8)) })
   // 地上から大通りの高層ビルを見上げる
   if (scene === 'street') await page.evaluate(() => { window.__tsNoAuto = true; ts.place(0, 0, 40, { yaw: Math.PI }); ts.look(Math.PI, -0.25); ts.run(20) })
 }

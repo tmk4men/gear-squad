@@ -54,7 +54,7 @@ const hold = (st, n, inp = {}) => { for (let i = 0; i < n; i++) G.step(st, { ...
   const a = snipeSetup(20, -2, 27)
   hold(a.st, 60); G.step(a.st, {})
   const full = 100 - a.e.en
-  ok(a.me.role === 'sniper' && full > 30, '止まった相手に満タンの狙撃が当たる', `dmg=${full.toFixed(1)}`)
+  ok(a.me.role === 'sniper' && Math.abs(full - G.SNIPERS.snipe.dmax) < 1, '止まった相手に満タンの狙撃が当たる（最大威力）', `dmg=${full.toFixed(1)}`)
   const b = snipeSetup(21, -2, 27)
   hold(b.st, 20); G.step(b.st, {})
   const half = 100 - b.e.en

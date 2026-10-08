@@ -464,7 +464,7 @@ function makeUnitView(u) {
     if (arm) {
       model.updateMatrixWorld(true)
       const ws = arm.getWorldScale(new THREE.Vector3()).x
-      g.scale.setScalar(1 / ws); g.position.set(0, 0.2 / ws, 0); g.rotation.set(Math.PI / 2, 0, 0)
+      g.scale.setScalar(1.35 / ws); g.position.set(0, 0.2 / ws, 0); g.rotation.set(Math.PI / 2, 0, 0) // 後ろから見ても分かるよう一回り大きく
       arm.add(g)
     }
     gunMesh = g
@@ -527,11 +527,31 @@ function stepUnitView(dt, u, v, frozen) {
   const wn = Math.min(v.weightBlocks.length, u.weights || 0)
   if (v.wn !== wn) { v.weightBlocks.forEach((m, i) => { m.visible = i < wn }); v.wn = wn }
   // 自機は、いま持っている武器だけを見せる（持ち替えで刃・銃・狙撃銃が入れ替わる）
+  // 持ち替え: 持っていた武器が縮んで消え、新しい武器が回りながら大きく出てくる（0.25秒）
   if (u.player && state && !state.autoplay && weapons.length) {
     const cls = G.TRIGGER_CLASS[weapons[activeW]]
-    if (v.blade) v.blade.visible = cls === 'melee'
-    if (v.gunMesh) v.gunMesh.visible = cls === 'gun'
-    if (v.rifle) v.rifle.visible = cls === 'sniper'
+    const byCls = { melee: v.blade, gun: v.gunMesh, sniper: v.rifle }
+    for (const m of [v.blade, v.gunMesh, v.rifle]) if (m && !m.userData.s0) m.userData.s0 = m.scale.clone()
+    if (v.cls !== cls) {
+      if (v.cls && byCls[v.cls]) v.outW = byCls[v.cls]
+      v.cls = cls; v.swapT = v.cls0 === undefined ? 1 : 0; v.cls0 = cls
+      const hand = byCls[cls]
+      if (hand && v.swapT === 0) { const p = hand.getWorldPosition(tmpV); burst(p.x, p.y, p.z, 12, TEAM_LIGHT[u.team], 3, 0.08, 1, 0, 0.3) }
+    }
+    v.swapT = Math.min(1, (v.swapT ?? 1) + dt / 0.25)
+    const k = v.swapT
+    for (const [c, m] of Object.entries(byCls)) {
+      if (!m) continue
+      const s0 = m.userData.s0
+      if (c === cls) {
+        m.visible = true
+        const pop = k < 1 ? Math.sin(k * Math.PI * 0.5) * (1 + 0.18 * Math.sin(k * Math.PI)) : 1 // 少し大きく出てから戻る
+        m.scale.copy(s0).multiplyScalar(Math.max(0.01, pop))
+        m.rotation.y = (1 - k) * Math.PI * 1.5
+      } else if (m === v.outW && k < 0.5) {
+        m.visible = true; m.scale.copy(s0).multiplyScalar(Math.max(0.01, 1 - k * 2))
+      } else { m.visible = false; m.scale.copy(s0); m.rotation.y = 0 }
+    }
   }
   // 再出撃直後の守られている間は点滅させる
   v.root.visible = !(u.shieldT > 0) || Math.floor(u.shieldT * 10) % 2 === 0
@@ -906,7 +926,7 @@ const SFX = {
   cham: k => { tone(900, 0.4, 'sine', 0.035 * k, 200); noise(0.4, 0.05 * k, 3000, 'bandpass', 0, 600, 2) },
   hitSnipe: k => { ring(900, 0.5, 0.05 * k); tone(160, 0.3, 'sine', 0.22 * k, 50); noise(0.12, 0.3 * k, 2500) },
   jump: k => noise(0.1, 0.05 * k, 900, 'bandpass', 0, 2000),
-  swap: () => { audioPos.pan = 0; audioPos.far = 0; tone(520, 0.06, 'square', 0.03, 780, 0, 0.05); noise(0.05, 0.05, 3000, 'bandpass', 0.03) },
+  swap: () => { audioPos.pan = 0; audioPos.far = 0; noise(0.12, 0.08, 1200, 'bandpass', 0, 4200, 1.2, 0.05); tone(380, 0.07, 'square', 0.03, 760, 0.05, 0.05); ring(2200, 0.25, 0.02, 0.2, 0.09) }, // 引き抜く音とカチッという噛み合い
   // 強制帰還: 体が砕けるガラスの音と、吸い込まれて消える音
   bailout: () => { for (let i = 0; i < 7; i++) ring(1800 + Math.random() * 2600, 0.5, 0.03, 0.5, Math.random() * 0.25); tone(900, 0.9, 'sine', 0.14, 90, 0.15, 0.5); noise(0.7, 0.12, 4000, 'bandpass', 0.1, 300, 1.5, 0.5) },
   win: () => { audioPos.pan = 0; audioPos.far = 0; [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.25, 'square', 0.06, null, i * 0.12, 0.3)) },
@@ -945,7 +965,13 @@ function selectWeapon(i) {
   activeW = i
   snipeHolders.clear(); shootHolders.clear() // 持ち替えたら、押しっぱなしの撃ち・ためは切る
   hud.weapon = undefined
-  if (mode === 'play') SFX.swap && SFX.swap()
+  if (mode === 'play') {
+    SFX.swap && SFX.swap()
+    // 照準の下に、持ち替えた武器の名前を一瞬出す
+    const w = weapons[activeW], el = $('wpnPop')
+    el.innerHTML = `<svg><use href="#${TRIG_INFO[w].icon}"/></svg><b>${TRIG_INFO[w].name}</b><kbd>${activeW + 1}</kbd>`
+    el.classList.remove('show'); void el.offsetWidth; el.classList.add('show')
+  }
 }
 // ギアを押した: 狙撃は押している間ため、それ以外は押した瞬間に出す
 // ギアの名前 → 出す動作（近接・射撃・狙撃はそれぞれ同じボタン）
@@ -1934,12 +1960,12 @@ function handleEvents(events) {
         }
         feed(`<svg><use href="#i-out"/></svg><span class="t${u.team}">${nameOf(u)}</span>強制帰還${killer ? `<span class="by">${nameOf(killer)}</span>` : ''}`)
         if (u.player) {
-          banner('強制帰還', `${G.RESPAWN_T}秒後に再出撃`, 'var(--red)')
+          banner('強制帰還', killer && killer.team !== u.team ? `${killer.name}の${(TRIG_INFO[ev.how] || {}).name || '攻撃'}で倒された ・ ${G.RESPAWN_T}秒後に再出撃` : `${G.RESPAWN_T}秒後に再出撃`, 'var(--red)')
           $('touch').hidden = true
           $('dock').hidden = true
           $('me').hidden = true
           $('spectate').hidden = false
-        } else if (killer && killer.player) banner('撃破', `${u.name} を強制帰還させた`, 'var(--blue)')
+        } else if (killer && killer.player) banner('撃破', `${u.name} を${(TRIG_INFO[ev.how] || {}).name || ''}で強制帰還させた`, 'var(--blue)')
         break
       }
       case 'respawn': {
@@ -2162,7 +2188,7 @@ function setTriggers(list) {
   // 試合中の札: 武器スロット（数字キー）・ダッシュ・補助
   const chip = (id, icon, name, key, extra = '') => `<div class="trig plate" id="s-${id}"><svg><use href="#${icon}"/></svg><span class="nm">${name}</span><kbd>${key}</kbd><div class="cd"></div>${extra}</div>`
   $('dock').innerHTML = weapons.map((t, i) => chip(t, TRIG_INFO[t].icon, TRIG_INFO[t].name, String(i + 1))).join('')
-    + chip('dash', 'i-dash', 'ダッシュ', 'Shift')
+    + '<span class="dock-gap" aria-hidden="true"></span>' + chip('dash', 'i-dash', 'ダッシュ', 'Shift')
     + supports.map(t => chip(t, TRIG_INFO[t].icon, TRIG_INFO[t].name, TRIG_INFO[t].key, t === 'pad' ? '<b class="left" id="padLeftS" hidden></b>' : '')).join('')
   // スマホ: 大きいボタン＝攻撃、その左＝持ち替え、まわり＝補助
   touchBtn = {}
@@ -2191,7 +2217,7 @@ function showWeapon() {
 }
 function updateSummary() {
   const gun = myTrig.find(t => G.TRIGGER_CLASS[t] === 'gun')
-  $('miLoadout').textContent = myTrig.map(t => TRIG_INFO[t].name).join('・') + (gun ? `（${AMMO_NAME[myAmmo]}）` : '')
+  $('miLoadout').innerHTML = myTrig.map(t => `<svg class="mini" aria-label="${TRIG_INFO[t].name}"><use href="#${TRIG_INFO[t].icon}"/></svg>`).join('') + (gun ? `<em>${AMMO_NAME[myAmmo]}</em>` : '')
   $('miStage').textContent = `${G.STAGES[stageKey].name}・${WEATHER[weather].name}`
   $('startSub').textContent = `${G.STAGES[stageKey].name} ・ ${WEATHER[weather].name}`
   for (const b of document.querySelectorAll('.am')) b.setAttribute('aria-pressed', String(b.dataset.a === myAmmo))
@@ -2221,6 +2247,14 @@ $('statList').addEventListener('click', e => {
   myStats = next; save('ts-stats', myStats); renderStats()
 })
 const trigMsg = text => { const m = $('trigMsg'); m.textContent = text; m.classList.remove('show'); void m.offsetWidth; m.classList.add('show') }
+// 編成のカードに比べられる数字を出す（威力・連射・射程など）
+const specOf = t => {
+  if (G.MELEE[t]) { const m = G.MELEE[t]; return `威力${m.dmg} ・ 振り${(m.time + m.cd).toFixed(1)}秒` }
+  if (G.GUNS[t]) { const g = G.GUNS[t]; return `${g.n > 1 ? g.n + '発×' : ''}${g.dmg} ・ 毎秒${(1 / g.rate).toFixed(1)}回 ・ 射程${g.range}m` }
+  if (G.SNIPERS[t]) { const p = G.SNIPERS[t]; return `威力${p.dmin}〜${p.dmax} ・ ため${p.charge}秒` }
+  return null
+}
+for (const b of document.querySelectorAll('.tp')) { const sp = specOf(b.dataset.t); if (sp) b.insertAdjacentHTML('beforeend', `<span class="spec">${sp}</span>`) }
 for (const b of document.querySelectorAll('.tp')) b.addEventListener('click', () => {
   const t = b.dataset.t
   const same = myTrig.find(x => x !== t && G.TRIGGER_CLASS[x] === G.TRIGGER_CLASS[t])

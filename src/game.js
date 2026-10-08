@@ -62,7 +62,7 @@ export const DASH_T = 0.25
 export const DASH_CD = 3
 // 狙撃: 押している間ためて、離して撃つ。弾は一瞬で届く光線。ためるほど強い。
 // 狙いは相手の0.15秒前の位置に付くので、走り回る相手には外れ、止まった相手や着地の瞬間に当たる
-export const SNIPE_RANGE = 100
+export const SNIPE_RANGE = 160 // 狙撃の届く距離（マップの半分）
 const SNIPE_LAG = 9               // 何ステップ前の位置を狙うか（0.15秒）
 const SNIPE_HIT_R = 0.55
 const LOCK_RANGE = 110
@@ -293,8 +293,8 @@ export const TRIGGER_CLASS = { blade: 'melee', scorpion: 'melee', handgun: 'gun'
 export const ATTACK_TRIGGERS = TRIGGERS.filter(t => ['melee', 'gun', 'sniper'].includes(TRIGGER_CLASS[t]))
 // 近接: ブロードセイバーは重くて強い、スティンガーは軽くて速い
 export const MELEE = {
-  blade: { dmg: 16, time: 0.42, from: 0.1, to: 0.24, range: 2.6, lunge: 9, cd: 0.5, leak: 0.6, arc: Math.cos(80 * Math.PI / 180) },
-  scorpion: { dmg: 10, time: 0.28, from: 0.06, to: 0.16, range: 2.2, lunge: 12, cd: 0.18, leak: 0.45, arc: Math.cos(70 * Math.PI / 180) },
+  blade: { dmg: 22, time: 0.42, from: 0.1, to: 0.24, range: 2.6, lunge: 9, cd: 0.5, leak: 0.6, arc: Math.cos(80 * Math.PI / 180) },
+  scorpion: { dmg: 14, time: 0.28, from: 0.06, to: 0.16, range: 2.2, lunge: 12, cd: 0.18, leak: 0.45, arc: Math.cos(70 * Math.PI / 180) },
 }
 // 銃: 撃ち方が違う。押している間、銃ごとの間隔で撃ち続ける（連射の速さで、待ち時間ではない）
 export const GUNS = {
@@ -315,9 +315,9 @@ export const AMMO = {
 export const AMMO_TYPES = Object.keys(AMMO)
 // 狙撃: ロングショットは標準、ラピッドショットは速いが軽い、ヘビーショットは遅いが重い
 export const SNIPERS = {
-  snipe: { charge: 0.9, cd: 1.4, min: 0.3, cost: 1.5, dmin: 12, dmax: 30, leak: 0.6, slow: 0.4, lag: 9, kick: 4 },
-  lightning: { charge: 0.35, cd: 0.5, min: 0.1, cost: 0.5, dmin: 5, dmax: 9, leak: 0.3, slow: 0.75, lag: 4, kick: 1 },
-  ibis: { charge: 1.6, cd: 2.6, min: 0.6, cost: 3, dmin: 30, dmax: 55, leak: 0.9, slow: 0.2, lag: 9, kick: 9 },
+  snipe: { charge: 0.9, cd: 1.4, min: 0.3, cost: 1.5, dmin: 10, dmax: 24, leak: 0.6, slow: 0.4, lag: 9, kick: 4 },
+  lightning: { charge: 0.35, cd: 0.5, min: 0.1, cost: 0.5, dmin: 4, dmax: 7, leak: 0.3, slow: 0.75, lag: 4, kick: 1 },
+  ibis: { charge: 1.6, cd: 2.6, min: 0.6, cost: 3, dmin: 24, dmax: 44, leak: 0.9, slow: 0.2, lag: 9, kick: 9 },
 }
 export const CHAMELEON_DRAIN = 0.6 // ミラージュ: 姿が消える（8m より近いと見つかる）。攻撃すると解ける
 export const CHAMELEON_SIGHT = 4
@@ -330,9 +330,16 @@ const ROLE_TRIGGERS = {
 }
 // CPU の組み方の幅（出撃位置がランダムな通常の試合だけ。テストは上の固定の組み方）
 const ROLE_VARIANTS = {
-  attacker: [['blade', 'pad', 'bag'], ['scorpion', 'pad', 'bag'], ['scorpion', 'pad', 'teleport'], ['blade', 'pad', 'teleport']],
-  allround: [['blade', 'handgun', 'pad', 'bag'], ['scorpion', 'rifle', 'pad', 'bag'], ['blade', 'shotgun', 'pad', 'bag'], ['scorpion', 'launcher', 'pad', 'teleport']],
-  sniper: [['snipe', 'pad', 'bag'], ['lightning', 'pad', 'bag'], ['ibis', 'pad', 'bag']],
+  // 近接で飛び込む型: 刃＋機動の補助
+  attacker: [['blade', 'pad', 'bag'], ['scorpion', 'pad', 'bag'], ['scorpion', 'pad', 'teleport'], ['blade', 'pad', 'teleport'], ['scorpion', 'chameleon', 'pad'], ['blade', 'chameleon', 'teleport'],
+    ['scorpion', 'shotgun', 'pad', 'teleport'], ['blade', 'pad', 'bag', 'teleport'], ['scorpion', 'chameleon', 'pad', 'teleport']],
+  // 中距離で撃ち、寄られたら斬る型
+  allround: [['blade', 'handgun', 'pad', 'bag'], ['scorpion', 'rifle', 'pad', 'bag'], ['blade', 'shotgun', 'pad', 'bag'], ['scorpion', 'launcher', 'pad', 'teleport'], ['blade', 'rifle', 'pad', 'teleport'],
+    ['scorpion', 'handgun', 'pad', 'chameleon'], ['blade', 'launcher', 'pad', 'bag'], ['scorpion', 'shotgun', 'teleport', 'pad'], ['blade', 'handgun', 'teleport', 'bag']],
+  // 撃つだけの型（銃＋補助）
+  shooter: [['rifle', 'pad', 'bag'], ['handgun', 'pad', 'teleport', 'bag'], ['launcher', 'pad', 'bag'], ['shotgun', 'pad', 'teleport', 'chameleon'], ['rifle', 'pad', 'teleport']],
+  // 狙撃型: 狙撃銃＋寄られたときの銃か補助
+  sniper: [['snipe', 'pad', 'bag'], ['lightning', 'pad', 'bag'], ['ibis', 'pad', 'bag'], ['snipe', 'handgun', 'pad', 'bag'], ['lightning', 'rifle', 'pad', 'bag'], ['ibis', 'pad', 'bag', 'teleport'], ['snipe', 'pad', 'teleport'], ['lightning', 'shotgun', 'pad', 'bag']],
 }
 const pickClass = (trig, cls) => trig.find(t => TRIGGER_CLASS[t] === cls) || null
 export const sniperSpec = u => SNIPERS[u.sniper] || SNIPERS.snipe
@@ -394,10 +401,11 @@ export function createState(seed = Date.now(), opts = {}) {
     // 自機の役割は出撃前に選ぶ（allround = ブレード＋スプリッター、sniper = 狙撃＋スプリッター）
     // 自機は出撃前に組んだギア（無ければ役割の既定）。古い loadout 指定も受ける
     const mine = r.player && (validTriggers(opts.triggers) || (opts.loadout === 'sniper' ? ['snipe', 'shoot', 'pad', 'bag'] : null))
-    const variants = opts.spawn !== 'fixed' && ROLE_VARIANTS[r.role]
+    const slotRole = opts.spawn !== 'fixed' && r.role === 'allround' && !r.player && st.rand() < 0.35 ? 'shooter' : r.role // 隊の真ん中は銃だけの型にもなる
+    const variants = opts.spawn !== 'fixed' && ROLE_VARIANTS[slotRole]
     const trig = mine || (variants ? variants[Math.floor(st.rand() * variants.length)] : ROLE_TRIGGERS[r.role])
     const ammo = r.player && AMMO[opts.ammo] ? opts.ammo : variants ? AMMO_TYPES[Math.floor(st.rand() * AMMO_TYPES.length)] : 'normal'
-    const role = mine ? roleOf(mine) : r.role
+    const role = roleOf(trig) // 組み方から役割を決める（CPU も）
     st.units.push({
       id: i, team: r.team, role, trig, name: r.name, player: !!r.player,
       melee: pickClass(trig, 'melee'), gun: pickClass(trig, 'gun'), sniper: pickClass(trig, 'sniper'), ammo,
@@ -520,6 +528,7 @@ function damage(st, target, amount, leak, src, kind, dirx, dirz) {
   target.wounds.push({ rate: leak, t: amount * LEAK_SEC_PER_DMG })
   target.leak = Math.min(LEAK_MAX, target.wounds.reduce((a, w) => a + w.rate, 0))
   target.lastHitBy = src.id
+  target.lastHow = kind === 'blade' ? src.melee : kind === 'snipe' ? src.sniper : src.gun // 何で倒されたか（画面に出す）
   target.hurtT = 0
   st.events.push({ type: 'hit', kind, id: target.id, src: src.id, x: target.x, y: target.y + 1.1, z: target.z, amount })
   if (target.en <= 0) bailout(st, target)
@@ -538,7 +547,7 @@ function bailout(st, u) {
     st.score[killer.team] += SCORE.kill
     killer.kills++
   }
-  st.events.push({ type: 'bailout', id: u.id, team: u.team, killer: killer ? killer.id : -1, x: u.x, y: u.y, z: u.z })
+  st.events.push({ type: 'bailout', id: u.id, team: u.team, killer: killer ? killer.id : -1, how: u.lastHow || null, x: u.x, y: u.y, z: u.z })
 }
 
 // 再出撃: 生きている敵からできるだけ離れ（レーダーの外）、味方に近い空き地へ出す
@@ -1161,6 +1170,8 @@ function aiInput(st, u) {
     ai.stuckT = 0
   }
   inp.bagSet = u.role === 'sniper' && u.en > 8 // スナイパーは基本的にマントを着て位置を隠す
+  // ミラージュを持つ CPU: 近づく間だけ姿を消し、間合いに入ったら解いて攻撃（攻撃すると自動で解ける）
+  if (u.trig.includes('chameleon') && u.role !== 'sniper') inp.chamSet = d > 5 && d < 45 && u.en > 25 && !inp.shoot && !inp.blade
   return inp
 }
 

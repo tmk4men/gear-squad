@@ -250,6 +250,9 @@
   .mi svg{width:24px;height:24px}
   .mi .mi-t{font-size:16px;font-weight:900;letter-spacing:.08em}
   .mi small{font-size:11.5px;color:var(--dim);font-weight:700;max-width:170px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #miLoadout{display:flex;align-items:center;gap:4px;max-width:none;overflow:visible} #miLoadout .mini{width:18px;height:18px;color:var(--ink-2)} #miLoadout em{font-style:normal;margin-left:6px;font-size:11px;color:var(--dim)}
+  .tp .spec{font-family:var(--num);font-size:10px;color:var(--mute);font-weight:700;letter-spacing:.02em} .tp[aria-pressed="true"] .spec{color:rgba(255,255,255,.6)}
+  .dock-gap{width:10px}
   .foot{margin:0;font-size:11.5px;color:rgba(255,255,255,.7);font-weight:700}
   /* 各画面（編成・ステージ・操作）: PCは右からの板、スマホは全画面 */
   .sheet{position:absolute;top:0;right:0;bottom:0;width:min(560px,100%);display:grid;grid-template-rows:auto auto 1fr;background:rgba(245,247,250,.97);box-shadow:-20px 0 60px rgba(10,16,26,.3);animation:sheetIn .25s ease-out}
@@ -399,6 +402,11 @@
   #banner small{background:var(--glass,rgba(11,16,25,.74));color:#fff}
   #spectate b{color:var(--signal)}
   #mute{color:#fff} #mute svg *{stroke:#fff} #mute svg path[fill]{fill:#fff}
+  #wpnPop{position:absolute;left:50%;top:calc(50% + 96px);transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:6px 16px 7px 14px;opacity:0;pointer-events:none;white-space:nowrap}
+  #wpnPop svg{width:22px;height:22px;color:var(--signal)} #wpnPop b{font-size:14px;font-weight:900} #wpnPop kbd{font-family:var(--num);font-size:11px;color:var(--on-glass-dim)}
+  #wpnPop.show{animation:wpn .9s forwards}
+  @keyframes wpn{0%{opacity:0;transform:translate(-50%,8px) scale(.92)}12%{opacity:1;transform:translate(-50%,0) scale(1.04)}22%{transform:translate(-50%,0) scale(1)}75%{opacity:1}100%{opacity:0}}
+  body.touch #wpnPop{top:auto;bottom:calc(250px + env(safe-area-inset-bottom))}
   /* スマホのボタン: 暗いガラスの丸に白い記号。攻撃だけ黄色 */
   .tb{background:rgba(11,16,25,.62);color:#fff;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.22),0 4px 14px rgba(0,0,0,.25)}
   #tBlade{background:var(--signal)!important;color:var(--ink)!important;box-shadow:0 0 0 4px rgba(255,197,49,.25),0 6px 18px rgba(0,0,0,.3)}
@@ -491,6 +499,7 @@
   </div>
   <div id="feed"></div>
   <div id="call" class="plate"></div>
+  <div id="wpnPop" class="plate" aria-live="polite"></div>
   <div id="me" class="plate">
     <div class="top"><span class="lbl">ENERGY</span><span class="role" id="meRole">アタッカー</span><span class="val" id="enNum">100</span></div>
     <div class="bar" id="enBar"><i></i></div>
