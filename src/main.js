@@ -2,10 +2,10 @@
 // 時間で進むものは全部固定60Hzステップの中で進める（draw では状態を描くだけ）。
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { buildCity } from './city.js?v=202610080751'
+import { buildCity } from './city.js?v=202610081036'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import * as G from './game.js?v=202610080751'
+import * as G from './game.js?v=202610081036'
 
 const $ = id => document.getElementById(id)
 const clamp01 = v => Math.max(0, Math.min(1, v))
@@ -249,7 +249,7 @@ const RUN_NATURAL = 2.51 * BODY_K
 const OVERLAYS = ['Jump', 'Punch', 'Death', 'Dance', 'ThumbsUp', 'Wave', 'Yes', 'No']
 
 async function loadRobot() {
-  robotGltf = await new GLTFLoader().loadAsync('./models/RobotExpressive.glb?v=202610080751')
+  robotGltf = await new GLTFLoader().loadAsync('./models/RobotExpressive.glb?v=202610081036')
 }
 
 // 見た目（自機だけ）: ヘルメットの形・戦闘服の色・バイザーの光。装甲の色は隊の見分けなので変えない
@@ -653,7 +653,9 @@ const bailFx = []
 // 強制帰還: 体にひびが走って光り、隊の色の装甲片になって弾け飛ぶ。足元に衝撃波、強い閃光、
 // 中心の結晶が回りながら縮んで消える（光の柱で飛ばす演出にはしない）
 const shardGeo = new THREE.BoxGeometry(1, 1, 1)
-let slowmo = 0 // 自機が関わる強制帰還は一瞬だけ時間をゆっくりにする
+// 強制帰還の閃光は1つのライトを使い回す。毎回ライトを足すと全部の材質の作り直しが走り、画面が固まる
+const bailLight = new THREE.PointLight('#ffffff', 0, 22, 2)
+scene.add(bailLight)
 function spawnBailout(x, y, z, team, big = false) {
   const col = new THREE.Color(TEAM_LIGHT[team])
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.0, 48).rotateX(-Math.PI / 2),
@@ -664,8 +666,8 @@ function spawnBailout(x, y, z, team, big = false) {
   wave.position.set(x, y + 0.08, z)
   const orb = new THREE.Mesh(new THREE.OctahedronGeometry(0.45, 0), new THREE.MeshBasicMaterial({ color: col.clone().multiplyScalar(1.8), transparent: true, toneMapped: false }))
   orb.position.set(x, y + 1, z)
-  const flash = new THREE.PointLight(col, 60, 22, 2)
-  flash.position.set(x, y + 1.2, z)
+  const flash = bailLight
+  flash.color.copy(col); flash.position.set(x, y + 1.2, z)
   // 装甲片: 大小の板が回りながら飛んで落ちる（隊の色と黒）
   const shards = []
   const dark = new THREE.MeshStandardMaterial({ color: '#262c36', roughness: 0.5, metalness: 0.4 }), paint = new THREE.MeshStandardMaterial({ color: TEAM_COLOR[team], emissive: col, emissiveIntensity: 0.6, roughness: 0.4 })
@@ -679,11 +681,10 @@ function spawnBailout(x, y, z, team, big = false) {
     m.castShadow = true
     shards.push(m)
   }
-  scene.add(ring, wave, orb, flash, ...shards)
+  scene.add(ring, wave, orb, ...shards)
   bailFx.push({ ring, wave, orb, flash, shards, mats: [dark, paint], t: 0, x, y, z })
   burst(x, y + 1, z, 40, TEAM_LIGHT[team], 7, 0.16, 3, 6, 0.9)
   burst(x, y + 1, z, 24, '#ffffff', 5, 0.1, 2, 4, 0.45)
-  if (big) slowmo = 0.45
 }
 function stepBailFx(dt) {
   for (let i = bailFx.length - 1; i >= 0; i--) {
@@ -708,7 +709,7 @@ function stepBailFx(dt) {
       if (b.t > 1.4) m.scale.multiplyScalar(0.9) // 最後は縮んで消える
     }
     if (b.t > 1.9) {
-      scene.remove(b.ring, b.wave, b.orb, b.flash, ...b.shards)
+      scene.remove(b.ring, b.wave, b.orb, ...b.shards); if (!bailFx.some(o => o !== b && o.t < 0.35)) bailLight.intensity = 0
       b.ring.material.dispose(); b.wave.material.dispose(); b.orb.material.dispose(); for (const m of b.mats) m.dispose()
       bailFx.splice(i, 1)
     }
@@ -1106,8 +1107,8 @@ if (isTouch) document.body.classList.add('touch')
     const d = Math.hypot(dx, dy)
     if (d > R) { dx *= R / d; dy *= R / d }
     knob.style.transform = `translate(${dx}px,${dy}px)`
-    const m = Math.min(1, d / R), dz = 0.15
-    const k = m < dz ? 0 : (m - dz) / (1 - dz)
+    const m = Math.min(1, d / R), dz = 0.12
+    const k = m < dz ? 0 : Math.min(1, (m - dz) / (0.6 - dz)) // 半径の6割で全速（スマホで遅く感じないように）
     stick.x = d > 0 ? dx / d * k : 0
     stick.y = d > 0 ? dy / d * k : 0
   }
@@ -1121,6 +1122,11 @@ if (isTouch) document.body.classList.add('touch')
     b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('pointerleave', up)
   }
   tap($('tBlade'), () => 'attack')
+  // 攻撃ボタンを押したまま指を動かすと、視点も回る（撃ちながら狙いを動かせる）
+  { const b = $('tBlade'); let last = null
+    b.addEventListener('pointerdown', e => { last = { x: e.clientX, y: e.clientY, id: e.pointerId } })
+    b.addEventListener('pointermove', e => { if (!last || e.pointerId !== last.id) return; turnCamera((e.clientX - last.x) * 0.0065, (e.clientY - last.y) * 0.0045); last.x = e.clientX; last.y = e.clientY })
+    const stop = () => { last = null }; b.addEventListener('pointerup', stop); b.addEventListener('pointercancel', stop) }
   $('tShoot').addEventListener('pointerdown', e => { e.preventDefault(); selectWeapon(activeW + 1); ensureAudio() })
   SUP_SLOTS.forEach((id, i) => tap($(id), () => supports[i]))
   tap($('tJump'), () => 'jump'); tap($('tDash'), () => 'dash')
@@ -2162,8 +2168,7 @@ function frame(now) {
   let delta = (now - last) / 1000
   last = now
   if (delta > 0.25) delta = 0.25
-  acc += delta * (slowmo > 0 ? 0.3 : 1) // 強制帰還の瞬間だけゆっくり
-  slowmo = Math.max(0, slowmo - delta)
+  acc += delta
   if (paused) acc = 0
   let guard = 0
   while (acc >= G.STEP && guard < 10) { fixedStep(); acc -= G.STEP; guard++ }

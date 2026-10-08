@@ -354,6 +354,19 @@
   .back{border:0;background:var(--plate);color:var(--ink);font-family:inherit;font-size:13px;font-weight:900;padding:0 26px 0 22px;cursor:pointer;clip-path:polygon(12px 0,100% 0,calc(100% - 12px) 100%,0 100%)}
   .back:focus-visible{outline:3px solid var(--signal);outline-offset:3px}
   @media (max-width:520px){ .r-btns{grid-template-columns:1fr} .back{min-height:48px} }
+  /* 高さの低い画面（スマホ横）: 結果を詰めて、ボタンまで1画面に収める。はみ出したらスクロール */
+  #result{overflow-y:auto}
+  @media (max-height:520px){
+    #result{place-items:start center;padding:10px 16px calc(10px + env(safe-area-inset-bottom))}
+    .r-wrap{gap:6px;width:min(720px,100%)}
+    .r-head b{font-size:36px!important;padding:2px 26px 6px!important}
+    .r-head small{margin-top:3px;padding:2px 12px;font-size:11px}
+    .r-score .s{font-size:28px!important;min-width:80px!important;height:40px!important;padding:0 16px!important}
+    .r-score .mid{font-size:11px!important;padding:0 12px!important}
+    .r-note{padding:2px 12px!important;font-size:11px!important}
+    .r-row{min-height:28px!important;padding:2px 12px!important;font-size:12px!important}
+    .r-btns .go,.r-btns .back{min-height:44px!important;font-size:16px!important}
+  }
   .r-btns .go{justify-items:center;align-content:center;font-family:var(--display);font-size:22px;letter-spacing:.2em;padding:12px 48px}
   .r-head{justify-self:center;display:grid;justify-items:center}
   .r-head b{font-family:var(--display);font-weight:400;font-size:clamp(56px,13vw,96px);line-height:1;padding:4px 40px 10px;color:#fff;background:var(--ink);
@@ -693,6 +706,6 @@
 </div>
 
 <div id="bootErr" hidden></div>
-<script type="module" src="./src/main.js?v=202610080751"></script>
+<script type="module" src="./src/main.js?v=202610081036"></script>
 </body>
 </html>
