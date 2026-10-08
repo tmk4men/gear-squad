@@ -26,6 +26,14 @@ export const UNIT_R = 0.45
 export const UNIT_H = 1.9
 export const SCORE = { kill: 1 }
 export const RESPAWN_T = 8      // 強制帰還から再出撃までの秒数
+// 第六感: 出撃前に1つ選ぶ常時の能力
+export const SENSES = ['hawk', 'rally', 'precise', 'adversity']
+export const HAWK_RADAR = 65                         // 鷹の目: レーダー 50→65m
+export const RALLY_T = 5                             // 再起: 再出撃 8→5秒
+export const PRECISE_HEAD = 1.3                      // 精密: 頭に当たると1.3倍（どの銃・狙撃でも）
+export const ADVERSITY_EN = 0.3, ADVERSITY_ATK = 1.2, ADVERSITY_SPD = 1.1 // 逆境: EN 3割未満で攻撃+20%・足+10%
+export const respawnT = u => u.sense === 'rally' ? RALLY_T : RESPAWN_T
+export const adverse = u => u.sense === 'adversity' && u.alive && u.en < u.maxEn * ADVERSITY_EN
 export const SPAWN_SHIELD = 2   // 再出撃直後に攻撃を受けない秒数
 export const OVERTIME_MAX = 60  // 同点で時間切れなら、次の撃破で決まる延長戦（最長60秒）
 
@@ -320,7 +328,7 @@ export const SNIPERS = {
   ibis: { charge: 1.6, cd: 2.6, min: 0.6, cost: 3, dmin: 24, dmax: 44, leak: 0.9, slow: 0.2, lag: 9, kick: 9 },
 }
 export const CHAMELEON_DRAIN = 0.6 // ミラージュ: 姿が消える（8m より近いと見つかる）。攻撃すると解ける
-export const CHAMELEON_SIGHT = 4
+export const CHAMELEON_SIGHT = 0 // ミラージュ中は近くても見えない（PvP で完全に消えるように）
 export const TELEPORT_DIST = 20, TELEPORT_CD = 5, TELEPORT_COST = 1.5 // ブリンク: 向いている方へ最大15m跳ぶ
 const ROLE_TRIGGERS = {
   attacker: ['blade', 'pad', 'bag'],
@@ -409,6 +417,7 @@ export function createState(seed = Date.now(), opts = {}) {
     st.units.push({
       id: i, team: r.team, role, trig, name: r.name, player: !!r.player,
       melee: pickClass(trig, 'melee'), gun: pickClass(trig, 'gun'), sniper: pickClass(trig, 'sniper'), ammo,
+      sense: r.player ? (SENSES.includes(opts.sense) ? opts.sense : null) : variants ? SENSES[Math.floor(st.rand() * SENSES.length)] : null,
       cham: false, teleCd: 0, stats: r.player && opts.stats ? validStats(opts.stats, opts.statBonus) : { ...(ROLE_STATS[role] || ROLE_STATS.allround), ...(opts.spawn === 'fixed' ? { spd: 3, en: 3, atk: 3, jmp: 3 } : {}) },
       x: r.x, y: 0, z: r.z, vx: 0, vy: 0, vz: 0,
       yaw: Math.atan2(-r.x, -r.z), grounded: true, speed: 0, // 最初は街の中心を向く
@@ -524,6 +533,7 @@ function angleLerp(a, b, k) {
 function damage(st, target, amount, leak, src, kind, dirx, dirz) {
   if (!target.alive || target.shieldT > 0) return false
   if (src && src.stats) amount *= statAtk(src.stats.atk) // ステータスの攻撃
+  if (src && adverse(src)) amount *= ADVERSITY_ATK // 逆境
   target.en -= amount
   target.wounds.push({ rate: leak, t: amount * LEAK_SEC_PER_DMG })
   target.leak = Math.min(LEAK_MAX, target.wounds.reduce((a, w) => a + w.rate, 0))
@@ -581,13 +591,18 @@ function respawn(st, u) {
 function aliveEnemies(st, u) { return st.units.filter(e => e.alive && e.team !== u.team) }
 // その隊から見えている（レーダーか目で捉えている）か。味方の誰か1人が捉えていれば隊全体で分かる。
 // ステルスマント中はレーダーに映らず、目で見つかるのも45m以内
+// レーダーの点だけで分かるか（ミラージュ中の相手。マントを着ていれば映らない）
+export function radarBlip(st, team, e) {
+  if (!e.cham || e.bag) return false
+  return st.units.some(a => a.alive && a.team === team && Math.hypot(a.x - e.x, a.z - e.z) < (a.sense === 'hawk' ? HAWK_RADAR : RADAR_RANGE))
+}
 export function detectable(st, team, e) {
-  if (e.cham) return st.units.some(a => a.alive && a.team === team && Math.hypot(a.x - e.x, a.z - e.z) < CHAMELEON_SIGHT)
+  if (e.cham) return false // ミラージュ中は目に映らない（狙いも付けられない）。レーダーにだけ映る（radarBlip）
   const sight = e.bag ? BAG_SIGHT : SIGHT
   return st.units.some(a => {
     if (!a.alive || a.team !== team) return false
     const d = Math.hypot(a.x - e.x, a.z - e.z)
-    return (!e.bag && d < RADAR_RANGE) || (d < sight && lineOfSight(st, a, e))
+    return (!e.bag && d < (a.sense === 'hawk' ? HAWK_RADAR : RADAR_RANGE)) || (d < sight && lineOfSight(st, a, e)) // 鷹の目はレーダーが広い
   })
 }
 function knownEnemies(st, u) { return aliveEnemies(st, u).filter(e => detectable(st, u.team, e)) }
@@ -687,7 +702,7 @@ function snipe(st, u, target) {
   const l = Math.hypot(dx, dy, dz) || 1
   dx /= l; dy /= l; dz /= l
   // 建物か地面に当たるまで
-  let len = SNIPE_RANGE, hitBlk = null
+  let len = SNIPE_RANGE, hitBlk = null, hitY = 0
   for (const b of st.blocks) { const t = rayBox(ox, oy, oz, dx, dy, dz, b); if (t < len) { len = t; hitBlk = b } }
   const blkLen = len
   if (dy < -1e-6) len = Math.min(len, -oy / dy)
@@ -699,11 +714,12 @@ function snipe(st, u, target) {
     if (t < 0 || t > len) continue
     const py = oy + dy * t
     const cy = Math.max(e.y, Math.min(e.y + UNIT_H, py))
-    if (Math.hypot(ox + dx * t - e.x, py - cy, oz + dz * t - e.z) < SNIPE_HIT_R) { hit = e; len = t }
+    if (Math.hypot(ox + dx * t - e.x, py - cy, oz + dz * t - e.z) < SNIPE_HIT_R) { hit = e; len = t; hitY = cy }
   }
   if (hit) {
     const hl = Math.hypot(dx, dz) || 1
-    if (damage(st, hit, sp.dmin + (sp.dmax - sp.dmin) * charge, sp.leak * (0.5 + 0.5 * charge), u, 'snipe', dx / hl, dz / hl)) {
+    const head = u.sense === 'precise' && hitY > hit.y + 1.45 ? PRECISE_HEAD : 1 // 精密: 頭は1.3倍
+    if (damage(st, hit, (sp.dmin + (sp.dmax - sp.dmin) * charge) * head, sp.leak * (0.5 + 0.5 * charge), u, 'snipe', dx / hl, dz / hl)) {
       hit.vx += dx / hl * sp.kick * charge; hit.vz += dz / hl * sp.kick * charge
     }
   }
@@ -762,7 +778,7 @@ function stepUnit(st, u, input) {
   u.kbT = Math.max(0, (u.kbT || 0) - dt)
   u.bloom = Math.max(0, (u.bloom || 0) - dt * 0.08) // 撃つのをやめると散りが収まる
   const heavy = 1 - (u.slow || 0) // 重り弾の重さ
-  const run = RUN * statSpd(u.stats.spd) * heavy
+  const run = RUN * statSpd(u.stats.spd) * heavy * (adverse(u) ? ADVERSITY_SPD : 1)
   const tx = mx * run * control, tz = mz * run * control
   const k = (mag > 0.05 ? ACCEL : FRICTION) * dt * (u.grounded ? 1 : 0.35)
   const dvx = tx - u.vx, dvz = tz - u.vz
@@ -1189,7 +1205,7 @@ export function step(st, playerInput = {}) {
   }
   if (st.overtime) st.overtimeT += dt
   else st.timeLeft = Math.max(0, st.timeLeft - dt)
-  for (const u of st.units) if (!u.alive && u.outT >= RESPAWN_T) respawn(st, u)
+  for (const u of st.units) if (!u.alive && u.outT >= respawnT(u)) respawn(st, u)
   for (const u of st.units) { u.hist.push({ x: u.x, y: u.y, z: u.z }); if (u.hist.length > SNIPE_LAG + 1) u.hist.shift() }
 
   // 毎ステップ同じ順だと先に処理される隊が撃ち合い・斬り合いで常に先手を取るので、1ステップごとに順を入れ替える
@@ -1269,8 +1285,9 @@ function stepBullets(st) {
         const r = UNIT_R + (b.big ? 0.3 : 0.12)
         if (hr > r) continue
         const v = Math.hypot(b.vx, b.vz) || 1
-        const headHit = b.head > 1 && b.y > u.y + 1.45 // 頭（首から上）に当たった
-        if (!b.blast && damage(st, u, b.dmg * (headHit ? b.head : 1), BULLET_LEAK, st.units[b.owner], headHit ? 'head' : 'bullet', b.vx / v, b.vz / v)) {
+        const owner = st.units[b.owner], precise = owner && owner.sense === 'precise'
+        const headHit = (b.head > 1 || precise) && b.y > u.y + 1.45 // 頭（首から上）に当たった
+        if (!b.blast && damage(st, u, b.dmg * (headHit ? (b.head || 1) * (precise ? PRECISE_HEAD : 1) : 1), BULLET_LEAK, st.units[b.owner], headHit ? 'head' : 'bullet', b.vx / v, b.vz / v)) {
           if (b.slow) { u.weights = (u.slowT > 0 ? u.weights || 0 : 0) + 1; u.slow = Math.min(0.75, u.weights * b.slow); u.slowT = WEIGHT_T }
           if (b.kb) { u.vx += b.vx / v * b.kb; u.vz += b.vz / v * b.kb; u.kbHits = (u.kbT > 0 ? u.kbHits || 0 : 0) + 1; u.kbT = 0.12; if (u.kbHits >= 5) u.stun = Math.max(u.stun, 0.25) } // 散弾が多く当たるとよろめく
         }

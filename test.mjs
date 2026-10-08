@@ -390,10 +390,9 @@ const duel = (seed, trig, ex = 0, ez = 0) => {
   put(me, 0, 30); put(e, 0, 0)
   G.step(st, { cham: true })
   ok(me.cham && !G.detectable(st, 1, me), 'ミラージュ中は30m先から見つからない')
-  put(me, 0, 6); G.step(st, {})
-  ok(!G.detectable(st, 1, me), '6m でもまだ見つからない')
-  put(me, 0, 3); G.step(st, {})
-  ok(G.detectable(st, 1, me), '4m より近いと見つかる')
+  put(me, 0, 1.5); G.step(st, {})
+  ok(!G.detectable(st, 1, me), 'すぐ隣にいても目には映らない（狙いも付かない）')
+  ok(G.radarBlip(st, 1, me), 'レーダーの点には映る（マントを着ていなければ）')
   G.step(st, { blade: true })
   ok(!me.cham, '攻撃するとミラージュが解ける')
 }
@@ -674,6 +673,41 @@ const gunDuel = (seed, gun, ammo, ex, ez) => {
   ok(G.validStats({ spd: 5, en: 4, atk: 3, jmp: 3 }, 3).spd === 5, 'レベルの点（+3）があれば合計15点まで振れる')
   ok(G.validStats({ spd: 5, en: 4, atk: 3, jmp: 3 }, 0).spd === 3, '点が足りなければ標準に戻す')
   ok(G.validStats({ spd: 5, en: 5, atk: 5, jmp: 5 }, 9).spd === 3, '増える点は3点まで')
+}
+// ---------------------------------------------------------------- 第六感
+{ // 鷹の目: 60m 先の敵がレーダーに映る（ふつうは50mまで）
+  const st = mk(94, { sense: 'hawk' }); killAllBut(st, [0, 3])
+  const me = st.units[0], e = st.units[3]
+  const b = G.LEGACY_BLOCKS[2] // 間に建物を挟み、目では見えないようにする
+  put(me, b.x, b.z + 58); put(e, b.x, b.z - b.d / 2 - 1); e.ai.think = 1e9
+  const hawk = G.detectable(st, 0, e); me.sense = null
+  ok(hawk && !G.detectable(st, 0, e), '鷹の目は建物の陰の約60m先の敵もレーダーで見つける（ふつうは見えない）', `距離=${Math.hypot(me.x - e.x, me.z - e.z).toFixed(1)}m`)
+}
+{ // 再起: 5秒で再出撃（ふつうは8秒）
+  const st = mk(95, { sense: 'rally' }); killAllBut(st, [0, 3])
+  const me = st.units[0], e = st.units[3]; e.ai.think = 1e9; e.ai.targetId = -1; put(e, 34, -40)
+  put(me, 34, 0); me.en = 0.01; me.lastHitBy = 3; me.wounds.push({ rate: 1, t: 1 })
+  for (let i = 0; i < 60 * 5.5; i++) G.step(st, {})
+  ok(me.alive, '再起は5秒で再出撃する', `alive=${me.alive}`)
+}
+{ // 精密: 頭への狙撃が1.3倍
+  ok(G.PRECISE_HEAD > 1, '精密の頭の倍率は1倍より大きい')
+  // 銃: 頭を狙ったハンドガンは精密で1.5×1.3倍
+  const head = sense => { const st = mk(97, { triggers: ['handgun', 'pad'], sense }); killAllBut(st, [0, 3]); const me = st.units[0], e = st.units[3]
+    e.role = 'shooter'; e.trig = ['pad']; e.gun = e.melee = e.sniper = null; e.ai.think = 1e9; e.ai.targetId = -1
+    put(me, 34, 0, { yaw: Math.PI, shootCd: 0 }); put(e, 34, -12)
+    G.step(st, { shoot: true, lockOff: true, aimPoint: { x: 34, y: 1.75, z: -12 } }); for (let i = 0; i < 30; i++) G.step(st, {}); return 100 - e.en }
+  const a = head(null), b = head('precise')
+  ok(b > a * 1.2, '精密は頭に当たるとさらに1.3倍', `ふつう=${a.toFixed(2)} 精密=${b.toFixed(2)}`)
+}
+{ // 逆境: EN が3割を切ると攻撃+20%・足+10%
+  const st = mk(98, { sense: 'adversity' }); killAllBut(st, [0])
+  const me = st.units[0]
+  ok(!G.adverse(me), 'EN が多いうちは逆境は効かない')
+  me.en = 25
+  ok(G.adverse(me), 'EN が3割を切ると逆境が効く')
+  const far = sense => { const s2 = mk(99, { sense }); killAllBut(s2, [0]); const m = s2.units[0]; put(m, 34, 0); m.en = 20; for (let i = 0; i < 60; i++) G.step(s2, { mx: 0, mz: -1 }); return Math.abs(m.z) }
+  ok(far('adversity') > far(null) * 1.07, '逆境中は足が速い')
 }
 console.log(`\n${pass} OK / ${fail} FAIL`)
 process.exit(fail ? 1 : 0)

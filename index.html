@@ -264,7 +264,7 @@
   .sh-back svg{width:20px;height:20px}
   #trigCount{font-family:var(--num);font-size:14px;font-weight:800;color:var(--dim)}
   .tabs{display:flex;gap:4px;padding:10px 16px 0}
-  .tabs button{flex:1;min-height:44px;border:0;background:transparent;font-family:inherit;font-size:14px;font-weight:900;color:var(--dim);border-bottom:3px solid transparent;cursor:pointer}
+  .tabs button{flex:1;min-width:0;white-space:nowrap;min-height:44px;border:0;background:transparent;font-family:inherit;font-size:13px;letter-spacing:-.01em;font-weight:900;color:var(--dim);border-bottom:3px solid transparent;cursor:pointer}
   .tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--signal)}
   .sh-body{overflow-y:auto;padding:16px 20px calc(24px + env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch}
   .sheet:not(#sh-loadout) .sh-body{grid-row:2 / 4}
@@ -407,6 +407,7 @@
   #wpnPop.show{animation:wpn .9s forwards}
   @keyframes wpn{0%{opacity:0;transform:translate(-50%,8px) scale(.92)}12%{opacity:1;transform:translate(-50%,0) scale(1.04)}22%{transform:translate(-50%,0) scale(1)}75%{opacity:1}100%{opacity:0}}
   body.touch #wpnPop{top:auto;bottom:calc(250px + env(safe-area-inset-bottom))}
+  #me.adverse{box-shadow:inset 0 0 0 2px #ff7a6b,0 0 24px rgba(255,122,107,.45)} #me.adverse .role{background:#ff7a6b;color:#fff}
   /* スマホのボタン: 暗いガラスの丸に白い記号。攻撃だけ黄色 */
   .tb{background:rgba(11,16,25,.62);color:#fff;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.22),0 4px 14px rgba(0,0,0,.25)}
   #tBlade{background:var(--signal)!important;color:var(--ink)!important;box-shadow:0 0 0 4px rgba(255,197,49,.25),0 6px 18px rgba(0,0,0,.3)}
@@ -550,6 +551,7 @@
       <button role="tab" data-tab="gear" aria-selected="true">ギア</button>
       <button role="tab" data-tab="ammo" aria-selected="false">弾</button>
       <button role="tab" data-tab="stats" aria-selected="false">ステータス</button>
+      <button role="tab" data-tab="sense" aria-selected="false">第六感</button>
       <button role="tab" data-tab="look" aria-selected="false">見た目</button>
     </div>
     <div class="sh-body">
@@ -592,6 +594,16 @@
           <button class="am" data-a="blast" aria-pressed="false"><i class="dot" style="--c:#ff9a3c"></i><b>炸裂弾</b><small>当たった所で弾ける。物陰の相手と建物に強い</small><span class="spec">威力 80% ・ 爆風 1.8m ・ 建物 ×2.5</span></button>
           <button class="am" data-a="curve" aria-pressed="false"><i class="dot" style="--c:#c58bff"></i><b>曲射弾</b><small>横へふくらんでから狙いへ。正面の遮蔽物を回り込む</small><span class="spec">威力 85% ・ 弾速 85%</span></button>
           <button class="am" data-a="weight" aria-pressed="false"><i class="dot" style="--c:#8f9bb0"></i><b>重り弾</b><small>ほとんど削れないが、当たった数だけ重りが付き、足もジャンプも落ちる</small><span class="spec">威力 25% ・ 1発で6%重く（最大75%）・ 1分続く</span></button>
+        </div>
+      </div>
+      <div class="tab" id="tab-sense" hidden>
+        <p class="hint-s">生まれつきの勘。1つだけ選び、試合中ずっと効く</p>
+        <div class="am-list">
+          <button class="am sx" data-s="hawk" aria-pressed="false"><i class="dot" style="--c:#7fd0ff"></i><b>鷹の目</b><small>レーダーが50m→65m。見えない敵の音の印も長く残る</small><span class="spec">先に見つけて、有利な場所を取る</span></button>
+          <button class="am sx" data-s="rally" aria-pressed="false"><i class="dot" style="--c:#7dffb0"></i><b>再起</b><small>再出撃までが8秒→5秒</small><span class="spec">前に出て撃ち合う回数が増える</span></button>
+          <button class="am sx" data-s="precise" aria-pressed="false"><i class="dot" style="--c:#ffd75e"></i><b>精密</b><small>どの銃・狙撃でも、頭に当たると1.3倍（ハンドガンは1.5倍にさらに上乗せ）</small><span class="spec">狙う腕がそのまま強さになる</span></button>
+          <button class="am sx" data-s="adversity" aria-pressed="false"><i class="dot" style="--c:#ff7a6b"></i><b>逆境</b><small>EN が3割を切ると、攻撃+20%・足+10%</small><span class="spec">追い詰められてからの逆転</span></button>
+          <button class="am sx" data-s="" aria-pressed="false"><i class="dot" style="--c:#8e98a6"></i><b>なし</b><small>第六感を使わない</small><span class="spec"></span></button>
         </div>
       </div>
       <div class="tab" id="tab-look" hidden>

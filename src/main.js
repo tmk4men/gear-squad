@@ -554,9 +554,11 @@ function stepUnitView(dt, u, v, frozen) {
     }
   }
   // 再出撃直後の守られている間は点滅させる
-  v.root.visible = !(u.shieldT > 0) || Math.floor(u.shieldT * 10) % 2 === 0
+  // ミラージュ中の敵は、体・武器・足元の輪・影まで全部見せない（PvP で完全に消える）
+  const cloaked = u.cham && u.team !== 0
+  v.root.visible = !cloaked && (!(u.shieldT > 0) || Math.floor(u.shieldT * 10) % 2 === 0)
   // 足音: 地面を走った距離が歩幅ぶんたまるたびに鳴らす（自機と近くの機体だけ）
-  if (u.grounded && u.speed > 1 && mode === 'play') {
+  if (u.grounded && u.speed > 1 && mode === 'play' && !(u.cham && u.team !== 0)) {
     v.stepAcc = (v.stepAcc || 0) + u.speed * dt
     if (v.stepAcc > (u.speed > 4 ? 1.35 : 0.9)) {
       v.stepAcc = 0
@@ -1159,12 +1161,12 @@ const LOUD = { shoot: 1, snipe: 1, pad: 1, dash: 1, blade: 1 }
 function hearEvent(st, ev) {
   if (!LOUD[ev.type] || ev.id === undefined) return
   const u = st.units[ev.id], f = followTarget(st)
-  if (!u || u.team === 0 || !u.alive || G.detectable(st, 0, u)) return
+  if (!u || u.team === 0 || !u.alive || u.cham || G.detectable(st, 0, u)) return // ミラージュ中の敵は音でも分からない
   if (Math.hypot(u.x - f.x, u.z - f.z) > HEAR_RANGE) return
   const old = pings.find(p => p.id === u.id)
   if (old) { old.x = u.x; old.z = u.z; old.t = 0 } else pings.push({ id: u.id, x: u.x, z: u.z, t: 0 })
 }
-function stepPings(dt) { for (let i = pings.length - 1; i >= 0; i--) if ((pings[i].t += dt) > PING_LIFE) pings.splice(i, 1) }
+function stepPings(dt) { const k = state && state.units.some(u => u.player && u.sense === 'hawk') ? 0.6 : 1; for (let i = pings.length - 1; i >= 0; i--) if ((pings[i].t += dt * k) > PING_LIFE) pings.splice(i, 1) } // 鷹の目は音の印が長く残る
 function drawRadar(st) {
   if (++radarN % 2) return
   const dpr = Math.min(2, devicePixelRatio || 1)
@@ -1174,7 +1176,8 @@ function drawRadar(st) {
   x.setTransform(dpr, 0, 0, dpr, 0, 0)
   x.clearRect(0, 0, W, H)
   const f = followTarget(st)
-  const R = W / 2, sc = R / G.RADAR_RANGE // ミニマップの半径 = レーダーの範囲
+  const meR = st.units.find(u => u.player)
+  const R = W / 2, sc = R / (meR && meR.sense === 'hawk' ? G.HAWK_RADAR : G.RADAR_RANGE) // ミニマップの半径 = レーダーの範囲（鷹の目は広い）
   x.save()
   x.beginPath(); x.arc(R, R, R - 1, 0, 7); x.clip()
   x.fillStyle = 'rgba(15,23,34,.62)'; x.fillRect(0, 0, W, H)
@@ -1193,7 +1196,9 @@ function drawRadar(st) {
   }
   for (const u of st.units) {
     if (!u.alive) continue
-    if (u.team === 1 && !G.detectable(st, 0, u)) continue // マントを着て見えていない敵はレーダーに出ない
+    const blip = u.team === 1 && !G.detectable(st, 0, u) && G.radarBlip(st, 0, u) // ミラージュ中の敵はレーダーの点だけ
+    if (u.team === 1 && !G.detectable(st, 0, u) && !blip) continue // マントを着て見えていない敵はレーダーに出ない
+    if (blip) { x.strokeStyle = 'rgba(255,107,94,.85)'; x.lineWidth = 0.45; x.beginPath(); x.arc(u.x, u.z, 1.6, 0, 7); x.stroke(); continue }
     if (u.team === 0 && u.bag) { x.strokeStyle = 'rgba(255,255,255,.7)'; x.lineWidth = 0.35; x.beginPath(); x.arc(u.x, u.z, 2.4, 0, 7); x.stroke() }
     x.save(); x.translate(u.x, u.z); x.rotate(-u.yaw)
     x.fillStyle = u.team === 0 ? (u.player ? '#ffffff' : '#6fa2ff') : '#ff6b5e'
@@ -1276,12 +1281,14 @@ function drawHud(st) {
   const meU = st.units.find(u => u.player)
   const lowEn = meU && meU.alive && meU.en < 30
   if (hud.low !== lowEn) { hud.low = lowEn; $('lowEn').classList.toggle('on', lowEn) }
+  const adv = G.adverse(meU)
+  if (hud.adv !== adv) { hud.adv = adv; $('me').classList.toggle('adverse', adv); $('meRole').textContent = adv ? '逆境 発動' : ROLE_LABEL[meU.role] }
   if (hud.role !== meU.role) { hud.role = meU.role; $('meRole').textContent = ROLE_LABEL[meU.role] }
   if (!callState.min1 && !st.overtime && st.timeLeft <= 60 && mode === 'play') { callState.min1 = true; call(`残り1分、${st.score[0]}対${st.score[1]}`) }
   const tl = st.overtime ? '延長' : fmtTime(st.timeLeft)
   if (hud.t !== tl) { $('clock').textContent = tl; $('clock').classList.toggle('low', st.overtime || st.timeLeft <= 30); hud.t = tl }
   // 脱出中は再出撃までの秒読み
-  const rs = !meU.alive && mode === 'play' ? Math.max(1, Math.ceil(G.RESPAWN_T - meU.outT)) : 0
+  const rs = !meU.alive && mode === 'play' ? Math.max(1, Math.ceil(G.respawnT(meU) - meU.outT)) : 0
   if (hud.rs !== rs) { hud.rs = rs; $('respawnT').textContent = rs }
   // 敵のスナイパーにためられている
   const aimed = meU.alive && st.units.some(e => e.alive && e.team !== meU.team && e.snipeT >= 0 && e.targetId === meU.id)
@@ -1632,6 +1639,16 @@ function fadeFollowed(f, d, dt) {
       m.opacity = see ? 1 : v.near
       m.depthWrite = see
     }
+    // 腕の武器・重り・マントも一緒に薄くする（ミラージュで体だけ消えて武器が浮かないように）
+    if (!v.gearMats) {
+      v.gearMats = []
+      for (const g of [v.blade, v.gunMesh, v.rifle, v.cape, ...(v.weightBlocks || [])]) if (g) g.traverse(o => { if (o.isMesh) for (const m of [].concat(o.material)) if (!v.gearMats.includes(m)) { m.userData.op0 = m.opacity; m.userData.tr0 = m.transparent; v.gearMats.push(m) } })
+    }
+    for (const m of v.gearMats) {
+      const tr = see ? m.userData.tr0 : true
+      if (m.transparent !== tr) { m.transparent = tr; m.needsUpdate = true }
+      m.opacity = m.userData.op0 * (see ? 1 : v.near)
+    }
   }
 }
 function applyCamera() {
@@ -1829,7 +1846,7 @@ function startGame() {
   toggleBigMap(false)
   beams.length = 0
   fx.length = 0
-  state = G.createState(Date.now(), { triggers: myTrig, ammo: myAmmo, stats: myStats, statBonus: statBonus(), stage: stageKey, ...(window.__tsOpts || {}) })
+  state = G.createState(Date.now(), { triggers: myTrig, ammo: myAmmo, stats: myStats, statBonus: statBonus(), sense: mySense, stage: stageKey, ...(window.__tsOpts || {}) })
   for (const u of state.units) makeUnitView(u)
   hud = {}
   buildPips()
@@ -1960,7 +1977,7 @@ function handleEvents(events) {
         }
         feed(`<svg><use href="#i-out"/></svg><span class="t${u.team}">${nameOf(u)}</span>強制帰還${killer ? `<span class="by">${nameOf(killer)}</span>` : ''}`)
         if (u.player) {
-          banner('強制帰還', killer && killer.team !== u.team ? `${killer.name}の${(TRIG_INFO[ev.how] || {}).name || '攻撃'}で倒された ・ ${G.RESPAWN_T}秒後に再出撃` : `${G.RESPAWN_T}秒後に再出撃`, 'var(--red)')
+          banner('強制帰還', killer && killer.team !== u.team ? `${killer.name}の${(TRIG_INFO[ev.how] || {}).name || '攻撃'}で倒された ・ ${G.respawnT(u)}秒後に再出撃` : `${G.respawnT(u)}秒後に再出撃`, 'var(--red)')
           $('touch').hidden = true
           $('dock').hidden = true
           $('me').hidden = true
@@ -2157,12 +2174,14 @@ const TRIG_INFO = {
 const TRIG_ORDER = ['blade', 'scorpion', 'handgun', 'rifle', 'shotgun', 'launcher', 'snipe', 'lightning', 'ibis', 'pad', 'bag', 'chameleon', 'teleport'] // 表示・スロットの並び順
 const HOLD = t => G.TRIGGER_CLASS[t] === 'sniper' // 長押しでためるもの
 const PRESETS = { attacker: ['blade', 'pad', 'bag'], allround: ['blade', 'handgun', 'pad', 'bag'], sniper: ['snipe', 'rifle', 'pad', 'bag'], all: ['blade', 'rifle', 'snipe', 'pad'] }
+const SENSE_INFO = { hawk: ['鷹の目', 'レーダーが50m→65m。見えない敵の音の印も長く残る'], rally: ['再起', '再出撃までが8秒→5秒'], precise: ['精密', 'どの銃・狙撃でも、頭に当たると1.3倍'], adversity: ['逆境', 'EN が3割を切ると、攻撃+20%・足+10%'] }
 const AMMO_NAME = { normal: '通常弾', homing: '追尾弾', blast: '炸裂弾', curve: '曲射弾', weight: '重り弾' }
 const STAT_INFO = { spd: ['機動', '走る速さ'], en: ['EN量', '体力と弾の量（80〜120）'], atk: ['攻撃', '与えるダメージ'], jmp: ['跳躍', 'ジャンプの高さ'] }
 const load = (k, f) => { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v ?? f } catch { return f } }
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch {} }
 let myTrig = PRESETS.allround
 { const saved = G.validTriggers(load('ts-trig', null)); if (saved) myTrig = saved; else if (localStorage.getItem('ts-loadout') === 'sniper') myTrig = PRESETS.sniper }
+let mySense = G.SENSES.includes(load('ts-sense', null)) ? load('ts-sense', null) : null
 let myAmmo = G.AMMO[load('ts-ammo', 'normal')] ? load('ts-ammo', 'normal') : 'normal'
 // レベル: 試合ごとの経験値で上がる。1つ上がるごとにステータスの点が1増える（3点まで）
 const LV_XP = [100, 260, 480]
@@ -2217,10 +2236,11 @@ function showWeapon() {
 }
 function updateSummary() {
   const gun = myTrig.find(t => G.TRIGGER_CLASS[t] === 'gun')
-  $('miLoadout').innerHTML = myTrig.map(t => `<svg class="mini" aria-label="${TRIG_INFO[t].name}"><use href="#${TRIG_INFO[t].icon}"/></svg>`).join('') + (gun ? `<em>${AMMO_NAME[myAmmo]}</em>` : '')
+  $('miLoadout').innerHTML = myTrig.map(t => `<svg class="mini" aria-label="${TRIG_INFO[t].name}"><use href="#${TRIG_INFO[t].icon}"/></svg>`).join('') + (gun ? `<em>${AMMO_NAME[myAmmo]}</em>` : '') + (mySense ? `<em>${SENSE_INFO[mySense][0]}</em>` : '')
   $('miStage').textContent = `${G.STAGES[stageKey].name}・${WEATHER[weather].name}`
   $('startSub').textContent = `${G.STAGES[stageKey].name} ・ ${WEATHER[weather].name}`
-  for (const b of document.querySelectorAll('.am')) b.setAttribute('aria-pressed', String(b.dataset.a === myAmmo))
+  for (const b of document.querySelectorAll('.am:not(.sx)')) b.setAttribute('aria-pressed', String(b.dataset.a === myAmmo))
+  for (const b of document.querySelectorAll('.sx')) b.setAttribute('aria-pressed', String(b.dataset.s === (mySense || '')))
   $('ammoNote').textContent = gun ? `${TRIG_INFO[gun].name}に込める弾。枠は使わない` : '銃を組むと使える（今は銃が入っていない）'
   for (const b of document.querySelectorAll('.sg')) b.setAttribute('aria-pressed', String(b.dataset.s === stageKey))
   renderStats()
@@ -2266,7 +2286,8 @@ for (const b of document.querySelectorAll('.tp')) b.addEventListener('click', ()
   if (mode === 'title') setupTitle()
 })
 for (const b of document.querySelectorAll('.pre')) b.addEventListener('click', () => { setTriggers(PRESETS[b.dataset.p]); if (mode === 'title') setupTitle() })
-for (const b of document.querySelectorAll('.am')) b.addEventListener('click', () => { myAmmo = b.dataset.a; save('ts-ammo', myAmmo); updateSummary() })
+for (const b of document.querySelectorAll('.am:not(.sx)')) b.addEventListener('click', () => { myAmmo = b.dataset.a; save('ts-ammo', myAmmo); updateSummary() })
+for (const b of document.querySelectorAll('.sx')) b.addEventListener('click', () => { mySense = b.dataset.s || null; save('ts-sense', mySense); updateSummary() })
 // 見た目の選択
 const LOOK_OPTS = { helmet: Object.entries(LOOK_HELMET).map(([k, n]) => [k, n, null]), suit: Object.entries(LOOK_SUIT).map(([k, [n, c]]) => [k, n, c]), glow: Object.entries(LOOK_GLOW).map(([k, [n, c]]) => [k, n, c || TEAM_LIGHT[0]]) }
 function renderLook() {
