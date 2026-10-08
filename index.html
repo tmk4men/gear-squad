@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>ギアスクワッド</title>
+<meta name="description" content="4つのギアを使い分けて戦う3対3の市街地チーム戦。エネルギーが尽きると強制帰還。">
+<meta property="og:title" content="ギアスクワッド">
+<meta property="og:description" content="ブレード、スプリッター、2連続で跳べるエアステップ。4つのギアで戦う3対3の市街地チーム戦。">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Oxanium:wght@600;700;800&family=Zen+Kaku+Gothic+New:wght@500;700;900&display=swap" rel="stylesheet">
+<style>
+  [hidden]{display:none!important}
+  :root{
+    --ink:#0f1722; --ink-2:#283342; --dim:#5d6878; --mute:#8e98a6;
+    --plate:rgba(245,247,250,.9); --plate-soft:rgba(245,247,250,.62); --line:rgba(15,23,34,.14);
+    --blue:#2f6bff; --blue-soft:#9dbbff; --red:#ec3b33; --red-soft:#ffaaa4;
+    --signal:#ffc531; --en:#12b5a6; --shield:#6f9dff;
+    --slant:10px;
+    --display:"Dela Gothic One","Zen Kaku Gothic New",sans-serif;
+    --num:"Oxanium","Zen Kaku Gothic New",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:#b9c7d3;
+    font-family:"Zen Kaku Gothic New","Hiragino Sans",sans-serif;color:var(--ink);
+    -webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;touch-action:none}
+  body > canvas{display:block;position:absolute;inset:0} /* 3D の画面だけ。ミニマップや見取り図には効かせない */
+  .num{font-family:var(--num);font-variant-numeric:tabular-nums}
+  /* 斜めの板（中継画面の帯） */
+  .plate{background:var(--plate);clip-path:polygon(var(--slant) 0,100% 0,calc(100% - var(--slant)) 100%,0 100%);
+    backdrop-filter:blur(8px) saturate(1.2);-webkit-backdrop-filter:blur(8px) saturate(1.2)}
+
+  #hud{position:absolute;inset:0;pointer-events:none}
+
+  /* ---------- 得点板 ---------- */
+  #board{position:absolute;top:calc(12px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);display:grid;justify-items:center;gap:5px}
+  #board .row{display:flex;align-items:stretch;filter:drop-shadow(0 6px 14px rgba(15,23,34,.18))}
+  .side{display:flex;align-items:center;gap:10px;padding:0 18px;height:46px;color:#fff;font-weight:900}
+  .side small{font-size:11px;letter-spacing:.18em;opacity:.9}
+  .side b{font-family:var(--num);font-size:34px;font-weight:800;line-height:1}
+  #side0{background:var(--blue);clip-path:polygon(14px 0,100% 0,100% 100%,0 100%);padding-left:26px}
+  #side1{background:var(--red);clip-path:polygon(0 0,100% 0,calc(100% - 14px) 100%,0 100%);padding-right:26px}
+  #clock{display:grid;place-items:center;min-width:92px;height:46px;background:var(--ink);color:#fff;font-family:var(--num);font-size:24px;font-weight:700;letter-spacing:.04em}
+  #clock.low{color:var(--signal)}
+  .pips{display:flex;gap:4px}
+  #pips{display:flex;gap:46px}
+  .pip{width:30px;height:7px;background:rgba(15,23,34,.25);clip-path:polygon(3px 0,100% 0,calc(100% - 3px) 100%,0 100%);position:relative;overflow:hidden}
+  .pip i{position:absolute;inset:0;transform-origin:left}
+  .pips.t0 .pip i{background:var(--blue)} .pips.t1 .pip i{background:var(--red)}
+  .pip.me{box-shadow:inset 0 0 0 1.5px #fff}
+  .pip.out i{transform:scaleX(0)!important}
+
+  /* ---------- 照準の輪（ENとギアの状態） ---------- */
+  #reticle{position:absolute;left:50%;top:50%;width:180px;height:180px;margin:-90px 0 0 -90px;overflow:visible}
+  #reticle .track{fill:none;stroke:rgba(15,23,34,.28);stroke-linecap:round}
+  #reticle .arc{fill:none;stroke-linecap:round;transition:stroke .2s}
+  #rEn{stroke:var(--en)} #rEn.low{stroke:var(--red)}
+  #rCh{stroke:var(--signal)} #rCh.full{stroke:#fff}
+  #tCh,#rCh{visibility:hidden} #reticle.charging #tCh,#reticle.charging #rCh{visibility:visible}
+  /* スコープ: ためている間だけ周りを暗くする */
+  #scope{position:absolute;inset:0;pointer-events:none;opacity:0;background:radial-gradient(circle at 50% 50%,transparent 0,transparent 30vmin,rgba(8,12,18,.55) 46vmin,rgba(8,12,18,.85) 80vmin)}
+  #reticle .tick{fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;opacity:.95}
+  #reticle .tick.cool{stroke:rgba(255,255,255,.3)}
+  #reticle .core{fill:none;stroke:#fff;stroke-width:1.6;opacity:.9}
+  #reticle .dot{fill:#fff}
+  #reticle.locked .core{stroke:var(--signal);opacity:1}
+  #reticle.free .core{stroke:#fff;stroke-dasharray:4 4;opacity:1}
+  /* 狙いの固定の状態（照準の下） */
+  #lockState{position:absolute;left:50%;top:calc(50% + 62px);transform:translateX(-50%);display:flex;align-items:center;gap:6px;padding:3px 14px 4px 12px;font-size:11px;font-weight:700;color:var(--ink-2);white-space:nowrap;opacity:0;pointer-events:none}
+  #lockState.show{animation:lockShow 2.4s forwards}
+  @keyframes lockShow{0%{opacity:0;transform:translate(-50%,6px)}8%{opacity:.95;transform:translate(-50%,0)}75%{opacity:.95}100%{opacity:0}}
+  #lockState b{color:#fff;background:var(--ink);padding:0 8px;font-size:11px} #lockState b.off{background:#5b6470}
+  #lockState kbd{font-family:var(--num);font-size:10px;color:var(--dim)}
+  body.touch #lockState kbd{display:none}
+  #reticle.locked .dot{fill:var(--signal)}
+  #reticle text{font-family:var(--num);font-weight:700;fill:#fff;paint-order:stroke;stroke:rgba(15,23,34,.55);stroke-width:3px}
+  #dmg{position:absolute;left:50%;top:50%;width:0;height:0}
+  .dmg{position:absolute;left:-80px;top:-80px;width:160px;height:160px;animation:dmg .9s ease-out forwards}
+  @keyframes dmg{0%{opacity:1}100%{opacity:0}}
+  #arrows{position:absolute;inset:0}
+  .arrow{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px}
+
+  /* ---------- 頭上の札・ロックオン ---------- */
+  #tags{position:absolute;inset:0;overflow:hidden}
+  .tag{position:absolute;transform:translate(-50%,-100%);display:grid;justify-items:center;gap:2px;white-space:nowrap}
+  .tag span{font-size:11px;font-weight:700;color:#fff;padding:1px 8px 2px 10px;clip-path:polygon(5px 0,100% 0,calc(100% - 5px) 100%,0 100%)}
+  .tag.t0 span{background:rgba(47,107,255,.88)} .tag.t1 span{background:rgba(236,59,51,.88)}
+  .tag i{display:block;width:46px;height:4px;background:rgba(15,23,34,.45);overflow:hidden}
+  .tag i b{display:block;height:100%;background:#fff;transform-origin:left}
+  .tag.far span{font-size:0;padding:0;width:10px;height:10px;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}
+  .tag.far i{display:none}
+  /* ダメージの数値 */
+  .pop{position:absolute;transform:translate(-50%,-100%);font-family:var(--num);font-size:19px;font-weight:800;color:#fff;letter-spacing:.02em;pointer-events:none;
+    text-shadow:0 0 3px rgba(15,23,34,.9),0 2px 0 rgba(15,23,34,.6)}
+  .pop.big{font-size:30px;color:var(--signal)}
+  .pop.hit{animation:popIn .18s ease-out}
+  @keyframes popIn{0%{transform:translate(-50%,-100%) scale(1.5)}100%{transform:translate(-50%,-100%) scale(1)}}
+  #lock{position:absolute;width:70px;height:84px;transform:translate(-50%,-50%)}
+  #lock svg{width:100%;height:100%;overflow:visible}
+
+  /* ---------- 下左: 自分のEN ---------- */
+  #me{position:absolute;left:calc(16px + env(safe-area-inset-left));bottom:calc(16px + env(safe-area-inset-bottom));width:min(330px,38vw);
+    padding:10px 22px 10px 18px;filter:drop-shadow(0 6px 14px rgba(15,23,34,.16))}
+  #me .top{display:flex;align-items:baseline;gap:10px}
+  #me .lbl{font-family:var(--num);font-size:12px;font-weight:700;letter-spacing:.2em;color:var(--dim)}
+  #me .val{font-family:var(--num);font-size:34px;font-weight:800;line-height:1;margin-left:auto}
+  #me .val.low{color:var(--red)}
+  .bar{height:10px;background:rgba(15,23,34,.12);margin-top:6px;clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%);position:relative;overflow:hidden}
+  .bar i{position:absolute;inset:0;transform-origin:left;background:var(--en)}
+  #enBar.low i{background:var(--red)}
+  #leak{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;font-weight:700;color:var(--red);min-height:16px}
+  #leak svg{width:14px;height:14px}
+
+  /* ---------- 下右: ギア ---------- */
+  #dock{position:absolute;right:calc(16px + env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom));display:flex;gap:4px;filter:drop-shadow(0 6px 14px rgba(15,23,34,.16))}
+  .trig{position:relative;min-width:112px;width:auto;height:62px;display:grid;grid-template-columns:auto 1fr;align-content:center;align-items:center;gap:2px 8px;padding:0 14px 0 16px;overflow:hidden}
+  .trig svg{width:24px;height:24px;grid-row:span 2;color:var(--ink)}
+  .trig .nm{font-size:11px;font-weight:900;line-height:1.2;white-space:nowrap}
+  .trig kbd{font-family:var(--num);font-size:11px;font-weight:700;color:var(--dim);white-space:nowrap}
+  .trig .cd{position:absolute;inset:0;background:rgba(15,23,34,.38);transform-origin:bottom;transform:scaleY(0)}
+  .trig.active{box-shadow:inset 0 -4px 0 var(--signal);background:#fff} .trig.active .nm{color:var(--ink)}
+  .trig.on{background:var(--ink)} .trig.on svg,.trig.on .nm{color:#fff} .trig.on kbd{color:var(--signal)}
+
+  /* ---------- 通知 ---------- */
+  #call{position:absolute;left:50%;top:calc(84px + env(safe-area-inset-top));transform:translateX(-50%);max-width:min(92vw,560px);padding:7px 14px;font-size:12.5px;font-weight:700;opacity:0;transition:opacity .3s;pointer-events:none;text-align:center}
+  #call.show{opacity:1}
+  #call b{font-size:10px;font-weight:900;color:#fff;background:var(--ink);padding:2px 6px;margin-right:8px;letter-spacing:.1em}
+  .tp-wx{display:flex;gap:4px;align-items:center}
+  .tp-wx b{font-size:11px;font-weight:900;color:var(--dim);margin-right:6px}
+  .wx{flex:1;min-height:36px;border:0;background:rgba(15,23,34,.06);color:var(--ink);font-family:inherit;font-size:12px;font-weight:900;cursor:pointer}
+  .wx[aria-pressed="true"]{background:var(--ink);color:#fff}
+  #feed{position:absolute;right:calc(16px + env(safe-area-inset-right));top:calc(108px + env(safe-area-inset-top));display:grid;gap:4px;justify-items:end}
+  .feed{display:flex;align-items:center;gap:8px;padding:5px 16px 5px 14px;font-size:12px;font-weight:700;animation:feed 4.2s forwards}
+  .feed .t0{color:var(--blue)} .feed .t1{color:var(--red)} .feed .by{color:var(--dim);font-weight:500}
+  .feed svg{width:14px;height:14px;color:var(--ink-2)}
+  @keyframes feed{0%{opacity:0;transform:translateX(16px)}6%{opacity:1;transform:none}85%{opacity:1}100%{opacity:0}}
+  #banner{position:absolute;left:0;right:0;top:24%;display:grid;justify-items:center;opacity:0}
+  #banner .bb{display:flex;align-items:center;gap:16px;padding:10px 48px 12px 40px;background:var(--ink);color:#fff;
+    clip-path:polygon(22px 0,100% 0,calc(100% - 22px) 100%,0 100%)}
+  #banner .bb::before{content:"";width:8px;align-self:stretch;background:var(--accent,var(--signal));transform:skewX(-24deg)}
+  #banner b{font-family:var(--display);font-weight:400;font-size:clamp(34px,7vw,60px);letter-spacing:.12em;line-height:1.1}
+  #banner small{display:block;margin-top:6px;padding:3px 16px;background:var(--plate);color:var(--ink);font-size:13px;font-weight:700;letter-spacing:.14em;
+    clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%)}
+  #banner small:empty{display:none}
+  #banner.show{animation:banner 1.9s cubic-bezier(.2,.8,.2,1) forwards}
+  @keyframes banner{0%{opacity:0;transform:translateX(-40px)}10%{opacity:1;transform:none}78%{opacity:1;transform:none}100%{opacity:0;transform:translateX(40px)}}
+  #spectate b{font-size:20px;font-weight:900;color:var(--blue);margin:0 2px}
+  #snipeWarn{position:absolute;left:50%;top:calc(96px + env(safe-area-inset-top));transform:translateX(-50%);padding:8px 16px;font-size:13px;font-weight:900;color:#fff;background:rgba(236,59,51,.92);animation:warnBlink .5s steps(2) infinite}
+  @keyframes warnBlink{50%{opacity:.55}}
+  #flash{position:absolute;inset:0;background:radial-gradient(transparent 55%,rgba(236,59,51,.38));opacity:0;transition:opacity .3s}
+  #flash.on{opacity:1;transition:none}
+  /* ENが少ないとき: 画面の縁が赤く脈打つ */
+  #lowEn{position:absolute;inset:0;pointer-events:none;opacity:0;background:radial-gradient(transparent 50%,rgba(236,59,51,.32));transition:opacity .4s}
+  #lowEn.on{opacity:1;animation:pulse 1s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
+  /* ミニマップ */
+  #bigmap{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:1.5px solid rgba(255,255,255,.4);pointer-events:auto;cursor:pointer;z-index:5}
+  #bigmapHelp{position:absolute;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));transform:translateX(-50%);padding:6px 14px;font-size:12px;font-weight:800;z-index:5}
+  #radar{cursor:pointer;pointer-events:auto;position:absolute;left:calc(16px + env(safe-area-inset-left));top:calc(16px + env(safe-area-inset-top));width:168px;height:168px;filter:drop-shadow(0 6px 14px rgba(15,23,34,.25))}
+  #me .role{font-size:11px;font-weight:900;color:#fff;background:var(--ink);padding:1px 10px 2px 8px;clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
+  #hint{position:absolute;left:50%;top:calc(50% + 104px);transform:translateX(-50%);padding:8px 22px 9px;font-size:13px;font-weight:700;display:flex;gap:8px;align-items:center}
+  #hint svg{width:16px;height:16px}
+  #spectate{position:absolute;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;gap:14px;align-items:center;
+    padding:8px 8px 8px 22px;font-size:13px;font-weight:700;pointer-events:auto;white-space:nowrap}
+  #spectate button{font:inherit;font-weight:900;font-size:13px;color:#fff;background:var(--ink);border:0;padding:12px 22px;min-height:44px;cursor:pointer;
+    clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%)}
+  #mute{position:absolute;top:calc(12px + env(safe-area-inset-top));right:calc(12px + env(safe-area-inset-right));width:52px;height:46px;border:0;
+    pointer-events:auto;display:grid;place-items:center;padding:0;cursor:pointer}
+  #mute svg{width:20px;height:20px}
+
+  /* ---------- タッチ操作 ---------- */
+  #touch{position:absolute;inset:0;pointer-events:none}
+  #stick{position:absolute;left:calc(26px + env(safe-area-inset-left));bottom:calc(26px + env(safe-area-inset-bottom));
+    width:132px;height:132px;border-radius:50%;background:rgba(245,247,250,.22);box-shadow:inset 0 0 0 2px rgba(245,247,250,.6);pointer-events:auto}
+  #knob{position:absolute;left:50%;top:50%;width:58px;height:58px;margin:-29px 0 0 -29px;border-radius:50%;background:var(--plate);box-shadow:0 4px 12px rgba(15,23,34,.25)}
+  .tb{position:absolute;border-radius:50%;border:0;background:var(--plate);color:var(--ink);pointer-events:auto;display:grid;place-items:center;padding:0;
+    box-shadow:0 4px 12px rgba(15,23,34,.22);overflow:hidden}
+  .tb svg{width:26px;height:26px;position:relative}
+  .tb.on{transform:scale(.92);background:#fff}
+  .tb .cd{position:absolute;inset:0;background:conic-gradient(rgba(15,23,34,.45) var(--p,0%),transparent 0)}
+  #tBlade{right:calc(24px + env(safe-area-inset-right));bottom:calc(36px + env(safe-area-inset-bottom));width:84px;height:84px;background:var(--ink);color:#fff}
+  #tBlade.on{background:var(--ink-2)}
+  #tBlade svg{width:34px;height:34px}
+  #tShoot{right:calc(122px + env(safe-area-inset-right));bottom:calc(24px + env(safe-area-inset-bottom));width:64px;height:64px}
+  #tDash{right:calc(36px + env(safe-area-inset-right));bottom:calc(134px + env(safe-area-inset-bottom));width:60px;height:60px}
+  #tLock{right:calc(30px + env(safe-area-inset-right));bottom:calc(208px + env(safe-area-inset-bottom));width:46px;height:46px;opacity:.75}
+  #tLock.on{background:var(--signal);opacity:1}
+  #tBag{right:calc(84px + env(safe-area-inset-right));bottom:calc(178px + env(safe-area-inset-bottom));width:46px;height:46px}
+  #tBag.on{background:var(--ink);color:#fff}
+  #tPad{right:calc(116px + env(safe-area-inset-right));bottom:calc(100px + env(safe-area-inset-bottom));width:56px;height:56px}
+  #tSup3{right:calc(150px + env(safe-area-inset-right));bottom:calc(166px + env(safe-area-inset-bottom));width:46px;height:46px}
+  #tSup3.on{background:var(--ink);color:#fff}
+  #tShoot .swap{position:absolute;right:-2px;top:-4px;font-size:12px;background:var(--signal);color:var(--ink);border-radius:10px;padding:0 5px;line-height:18px}
+  #tJump{right:calc(196px + env(safe-area-inset-right));bottom:calc(22px + env(safe-area-inset-bottom));width:52px;height:52px}
+  /* 枠は clip-path / overflow で切られるので、内側の空いている隅に置く */
+  .left{position:absolute;right:20px;bottom:10px;min-width:18px;height:18px;padding:0 4px;background:var(--blue);color:#fff;font-family:var(--num);font-size:12px;font-weight:800;line-height:18px;text-align:center}
+  .tb .left{right:auto;left:50%;bottom:4px;transform:translateX(-50%);height:14px;min-width:14px;line-height:14px;font-size:11px;border-radius:7px}
+  .tb:has(.left:not([hidden])) svg{transform:translateY(-5px)}
+  .left.zero{background:var(--red)}
+  body.touch #dock{display:none}
+  body.touch #hint{top:auto;bottom:calc(272px + env(safe-area-inset-bottom));width:min(92vw,340px);font-size:12px}
+  .sp-only{display:none} body.touch .sp-only{display:inline-block} body.touch .pc-only{display:none}
+  body.touch #feed{top:calc(96px + env(safe-area-inset-top))}
+  body.touch #call{top:calc(140px + env(safe-area-inset-top));max-width:calc(100vw - 150px);left:auto;right:12px;transform:none;font-size:11.5px;text-align:left}
+  body.touch #snipeWarn{top:calc(140px + env(safe-area-inset-top));left:auto;right:12px;transform:none}
+  @media (max-width:760px){
+    .side{height:40px;padding:0 12px;gap:6px} .side b{font-size:28px} .side small{display:none}
+    #side0{padding-left:20px} #side1{padding-right:20px}
+    #clock{height:40px;min-width:74px;font-size:20px}
+    #pips{gap:30px} .pip{width:22px}
+    #me{left:calc(12px + env(safe-area-inset-left));top:calc(84px + env(safe-area-inset-top));bottom:auto;width:150px;padding:6px 16px 6px 12px}
+    #me .val{font-size:22px} #me .lbl{font-size:10px} #me .role{display:none}
+    #radar{top:calc(160px + env(safe-area-inset-top));left:calc(12px + env(safe-area-inset-left));width:112px;height:112px}
+    #leak{font-size:10px;min-height:0}
+    /* 細いPC画面: ギアは記号とキーだけにして横一列に収める */
+    #dock{left:calc(12px + env(safe-area-inset-left));right:calc(12px + env(safe-area-inset-right))}
+    .trig{flex:1;width:auto;height:56px;grid-template-columns:1fr;justify-items:center;padding:0 10px}
+    .trig svg{grid-row:auto} .trig .nm{display:none}
+    .trig .left{right:12px;bottom:auto;top:6px}
+    #reticle{transform:scale(.8)}
+  }
+
+  /* ---------- ホーム ---------- */
+  .screen{position:absolute;inset:0;display:grid;padding:16px}
+  #title{padding:0;background:linear-gradient(90deg,rgba(10,16,26,.62) 0%,rgba(10,16,26,.28) 38%,rgba(10,16,26,0) 62%),linear-gradient(0deg,rgba(10,16,26,.45),rgba(10,16,26,0) 30%)}
+  .home{position:relative;display:grid;grid-template-rows:auto 1fr auto;height:100%;padding:clamp(24px,5vh,56px) clamp(20px,5vw,72px) calc(20px + env(safe-area-inset-bottom));max-width:620px;gap:24px}
+  .tag-line{margin:0;display:flex;align-items:center;font-family:var(--num);font-weight:700;font-size:12px;letter-spacing:.24em;color:#fff}
+  .tag-line span{padding:4px 14px 4px 12px;clip-path:polygon(7px 0,100% 0,calc(100% - 7px) 100%,0 100%)}
+  .tag-line .a{background:var(--blue)} .tag-line .v{background:#fff;color:var(--ink);margin:0 -3px} .tag-line .b{background:var(--red)}
+  .tag-line em{font-style:normal;margin-left:14px;opacity:.75;font-size:11px}
+  .logo{margin:14px 0 0;display:grid;gap:4px;color:#fff;text-shadow:0 4px 24px rgba(0,0,0,.35)}
+  .logo .jp{font-family:var(--display);font-weight:400;font-size:clamp(36px,6vw,80px);line-height:1;letter-spacing:.02em;white-space:nowrap}
+  .logo .en{font-family:var(--num);font-weight:800;font-size:clamp(13px,1.5vw,17px);letter-spacing:.62em;color:var(--signal);padding-left:4px}
+  .menu{align-self:end;display:grid;gap:10px;width:min(380px,100%)}
+  .go{position:relative;display:grid;justify-items:start;gap:2px;min-height:76px;padding:12px 64px 12px 26px;border:0;background:var(--signal);color:var(--ink);cursor:pointer;
+    clip-path:polygon(16px 0,100% 0,calc(100% - 16px) 100%,0 100%);transition:transform .15s,filter .15s;font-family:inherit;text-align:left}
+  .go .go-t{font-family:var(--display);font-size:30px;letter-spacing:.3em;line-height:1}
+  .go small{font-size:12px;font-weight:800;opacity:.75}
+  .go::after{content:"";position:absolute;right:30px;top:50%;width:14px;height:14px;margin-top:-7px;border-top:3px solid var(--ink);border-right:3px solid var(--ink);transform:rotate(45deg);transition:right .2s}
+  .go:hover{filter:brightness(1.06)} .go:hover::after{right:24px}
+  .go:active{transform:translateY(2px)}
+  .go:focus-visible,.mi:focus-visible,.sh-back:focus-visible,.tabs button:focus-visible,.am:focus-visible,.sg:focus-visible{outline:3px solid #fff;outline-offset:3px}
+  .mi{display:grid;grid-template-columns:28px 1fr auto;align-items:center;gap:14px;min-height:56px;padding:0 22px 0 20px;border:0;background:rgba(245,247,250,.92);color:var(--ink);cursor:pointer;text-align:left;font-family:inherit;
+    clip-path:polygon(12px 0,100% 0,calc(100% - 12px) 100%,0 100%);transition:transform .15s,background .15s}
+  .mi:hover{background:#fff;transform:translateX(4px)}
+  .mi svg{width:24px;height:24px}
+  .mi .mi-t{font-size:16px;font-weight:900;letter-spacing:.08em}
+  .mi small{font-size:11.5px;color:var(--dim);font-weight:700;max-width:170px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .foot{margin:0;font-size:11.5px;color:rgba(255,255,255,.7);font-weight:700}
+  /* 各画面（編成・ステージ・操作）: PCは右からの板、スマホは全画面 */
+  .sheet{position:absolute;top:0;right:0;bottom:0;width:min(560px,100%);display:grid;grid-template-rows:auto auto 1fr;background:rgba(245,247,250,.97);box-shadow:-20px 0 60px rgba(10,16,26,.3);animation:sheetIn .25s ease-out}
+  .sheet[hidden]{display:none}
+  @keyframes sheetIn{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
+  .sh-head{display:flex;align-items:center;gap:12px;padding:calc(16px + env(safe-area-inset-top)) 20px 12px 14px;border-bottom:1px solid var(--line)}
+  .sh-head h2{margin:0;font-family:var(--display);font-weight:400;font-size:22px;letter-spacing:.1em;flex:1}
+  .sh-back{width:44px;height:44px;border:0;background:var(--ink);color:#fff;display:grid;place-items:center;cursor:pointer;clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%)}
+  .sh-back svg{width:20px;height:20px}
+  #trigCount{font-family:var(--num);font-size:14px;font-weight:800;color:var(--dim)}
+  .tabs{display:flex;gap:4px;padding:10px 16px 0}
+  .tabs button{flex:1;min-height:44px;border:0;background:transparent;font-family:inherit;font-size:14px;font-weight:900;color:var(--dim);border-bottom:3px solid transparent;cursor:pointer}
+  .tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--signal)}
+  .sh-body{overflow-y:auto;padding:16px 20px calc(24px + env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch}
+  .sheet:not(#sh-loadout) .sh-body{grid-row:2 / 4}
+  .hint-s{margin:0 0 12px;font-size:12.5px;color:var(--ink-2);font-weight:700;line-height:1.6}
+  .tp-pre{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .pre{border:0;background:rgba(15,23,34,.07);color:var(--ink-2);font-family:inherit;font-size:12px;font-weight:800;padding:8px 14px;min-height:36px;cursor:pointer;clip-path:polygon(5px 0,100% 0,calc(100% - 5px) 100%,0 100%)}
+  .pre[aria-pressed="true"]{background:var(--ink);color:#fff}
+  .tp-group{margin-top:14px}
+  .tp-group h3,.sh-h3{margin:0 0 8px;font-size:11.5px;font-weight:900;color:var(--dim);letter-spacing:.24em}
+  .sh-h3{margin-top:22px}
+  .tp-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:6px}
+  .tp{position:relative;display:grid;justify-items:center;gap:4px;padding:12px 6px 10px;min-height:84px;border:0;background:rgba(15,23,34,.06);color:var(--ink);font-family:inherit;cursor:pointer;transition:background .15s,color .15s,transform .1s}
+  .tp svg{width:26px;height:26px}
+  .tp b{font-size:12px;font-weight:900;white-space:nowrap}
+  .tp small{font-size:10.5px;color:var(--dim);text-align:center}
+  .tp[aria-pressed="true"]{background:var(--ink);color:#fff}
+  .tp[aria-pressed="true"] small{color:var(--signal)}
+  .tp[aria-pressed="true"]::after{content:"";position:absolute;top:6px;right:6px;width:7px;height:7px;background:var(--signal)}
+  .tp:active{transform:scale(.97)}
+  .tp:focus-visible,.pre:focus-visible{outline:3px solid var(--signal);outline-offset:2px}
+  #trigMsg{margin:10px 0 0;font-size:12.5px;font-weight:800;color:var(--red);opacity:0;min-height:1em}
+  #trigMsg.show{animation:msg 2.2s forwards}
+  @keyframes msg{0%{opacity:0}10%{opacity:1}80%{opacity:1}100%{opacity:0}}
+  .am-list{display:grid;gap:8px}
+  .am{display:grid;grid-template-columns:22px 1fr;column-gap:12px;row-gap:3px;align-items:center;padding:14px 16px;border:0;background:rgba(15,23,34,.06);text-align:left;font-family:inherit;color:var(--ink);cursor:pointer;min-height:44px}
+  .am .dot{grid-row:1 / 4;width:18px;height:18px;border-radius:50%;background:var(--c);box-shadow:0 0 0 3px rgba(15,23,34,.15),0 0 12px var(--c)}
+  .am b{font-size:15px;font-weight:900}
+  .am small{font-size:12px;color:var(--ink-2);font-weight:700}
+  .am .spec{font-family:var(--num);font-size:11.5px;color:var(--dim);font-weight:700}
+  .am[aria-pressed="true"]{background:var(--ink);color:#fff}
+  .am[aria-pressed="true"] small,.am[aria-pressed="true"] .spec{color:rgba(255,255,255,.75)}
+  .st-list{display:grid;gap:10px}
+  .lv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:center;margin-bottom:12px;padding:12px 14px;background:var(--ink);color:#fff}
+  .lv b{font-family:var(--num);font-size:20px;font-weight:800;color:var(--signal)}
+  .lv-bar{height:6px;background:rgba(255,255,255,.18)} .lv-bar i{display:block;height:100%;background:var(--signal);width:0}
+  .lv small{grid-column:1 / 3;font-size:11.5px;color:rgba(255,255,255,.75);font-weight:700}
+  .lk-row{display:flex;gap:6px;flex-wrap:wrap}
+  .lk{min-height:44px;padding:0 16px;border:0;background:rgba(15,23,34,.07);font-family:inherit;font-size:13px;font-weight:900;color:var(--ink);cursor:pointer;display:flex;align-items:center;gap:8px}
+  .lk i{width:14px;height:14px;border-radius:50%;box-shadow:0 0 0 2px rgba(15,23,34,.2)}
+  .lk[aria-pressed="true"]{background:var(--ink);color:#fff}
+  .st-row{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;padding:12px 14px;background:rgba(15,23,34,.05)}
+  .st-row b{font-size:14px;font-weight:900}
+  .st-row small{grid-column:1;font-size:11.5px;color:var(--dim);font-weight:700}
+  .st-ctl{grid-row:1 / 3;grid-column:2;display:flex;align-items:center;gap:8px}
+  .st-ctl button{width:40px;height:40px;border:0;background:var(--ink);color:#fff;font-size:20px;font-weight:900;cursor:pointer}
+  .st-ctl button:disabled{opacity:.25;cursor:default}
+  .pips{display:flex;gap:3px}
+  .pips i{width:12px;height:18px;background:rgba(15,23,34,.15);clip-path:polygon(3px 0,100% 0,calc(100% - 3px) 100%,0 100%)}
+  .pips i.on{background:var(--signal)}
+  .sg-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .sg{display:grid;gap:6px;padding:10px;border:0;background:rgba(15,23,34,.06);text-align:left;font-family:inherit;color:var(--ink);cursor:pointer}
+  .sg-map{display:block;width:100%;height:auto;aspect-ratio:1;background:#1a2330}
+  .sg b{font-size:15px;font-weight:900}
+  .sg small{font-size:11.5px;color:var(--dim);font-weight:700;line-height:1.5}
+  .sg[aria-pressed="true"]{background:var(--ink);color:#fff;box-shadow:inset 0 0 0 3px var(--signal)}
+  .sg[aria-pressed="true"] small{color:rgba(255,255,255,.7)}
+  .tp-wx{display:flex;gap:6px}
+  .wx{flex:1;min-height:44px;border:0;background:rgba(15,23,34,.07);color:var(--ink);font-family:inherit;font-size:13px;font-weight:900;cursor:pointer}
+  .wx[aria-pressed="true"]{background:var(--ink);color:#fff}
+  .howto{margin:0 0 16px;padding-left:1.2em;font-size:13.5px;line-height:1.9;color:var(--ink-2);font-weight:700}
+  .t-keys{margin:0 0 16px;font-size:13px;color:var(--ink-2);line-height:2.2}
+  kbd.k{display:inline-block;min-width:20px;padding:0 6px;margin-right:4px;background:var(--ink);color:#fff;font-family:var(--num);font-weight:700;font-size:11px;text-align:center;
+    clip-path:polygon(3px 0,100% 0,calc(100% - 3px) 100%,0 100%)}
+  .nb{display:inline-block}
+  /* スマホ・縦長: 上にロゴ、下にメニュー。真ん中はキャラ */
+  @media (max-aspect-ratio:1/1){
+    #title{background:linear-gradient(180deg,rgba(10,16,26,.55) 0%,rgba(10,16,26,0) 30%),linear-gradient(0deg,rgba(10,16,26,.7) 0%,rgba(10,16,26,0) 45%)}
+    .home{max-width:none;padding:calc(20px + env(safe-area-inset-top)) 18px calc(18px + env(safe-area-inset-bottom))}
+    .brand{text-align:center;justify-self:center}
+    .tag-line{justify-content:center}
+    .tag-line em{display:none}
+    .logo .jp{font-size:clamp(30px,10.5vw,56px)}
+    .menu{width:100%;justify-self:center}
+    .mi small{max-width:46vw}
+    .foot{text-align:center}
+    .sheet{width:100%}
+  }
+  @media (max-height:560px) and (min-aspect-ratio:1/1){ .logo .jp{font-size:44px} .home{gap:12px;padding-top:18px} .go{min-height:62px} .mi{min-height:48px} }
+
+  /* ---------- 結果 ---------- */
+  #result{place-items:center;background:rgba(185,199,211,.45);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+  .r-wrap{width:min(560px,100%);display:grid;gap:10px}
+  .r-btns{display:grid;grid-template-columns:1fr auto;gap:6px}
+  .back{border:0;background:var(--plate);color:var(--ink);font-family:inherit;font-size:13px;font-weight:900;padding:0 26px 0 22px;cursor:pointer;clip-path:polygon(12px 0,100% 0,calc(100% - 12px) 100%,0 100%)}
+  .back:focus-visible{outline:3px solid var(--signal);outline-offset:3px}
+  @media (max-width:520px){ .r-btns{grid-template-columns:1fr} .back{min-height:48px} }
+  .r-btns .go{justify-items:center;align-content:center;font-family:var(--display);font-size:22px;letter-spacing:.2em;padding:12px 48px}
+  .r-head{justify-self:center;display:grid;justify-items:center}
+  .r-head b{font-family:var(--display);font-weight:400;font-size:clamp(56px,13vw,96px);line-height:1;padding:4px 40px 10px;color:#fff;background:var(--ink);
+    clip-path:polygon(24px 0,100% 0,calc(100% - 24px) 100%,0 100%)}
+  .r-head.win b{background:var(--blue)} .r-head.lose b{background:var(--red)}
+  .r-head small{margin-top:6px;padding:4px 18px;font-size:13px;font-weight:700;letter-spacing:.12em}
+  .r-score{display:flex;justify-content:center;align-items:stretch}
+  .r-score .s{display:grid;place-items:center;min-width:120px;height:64px;font-family:var(--num);font-size:44px;font-weight:800;color:#fff}
+  .r-score .s0{background:var(--blue);clip-path:polygon(18px 0,100% 0,100% 100%,0 100%)}
+  .r-score .s1{background:var(--red);clip-path:polygon(0 0,100% 0,calc(100% - 18px) 100%,0 100%)}
+  .r-score .mid{display:grid;place-items:center;padding:0 14px;background:var(--ink);color:#fff;font-family:var(--num);font-size:12px;font-weight:700;letter-spacing:.2em}
+  .r-note{justify-self:center;font-size:13px;font-weight:700;padding:4px 18px}
+  .r-note:empty{display:none}
+  .r-list{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .r-team{display:grid;gap:3px}
+  .r-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:7px 16px 7px 18px;font-size:13px;font-weight:700}
+  .r-row .k{font-family:var(--num);font-weight:800}
+  .r-row .k small{font-family:"Zen Kaku Gothic New",sans-serif;font-size:10px;color:var(--dim);margin-left:2px}
+  .r-row .st{font-size:11px;color:var(--dim);min-width:52px;text-align:right}
+  .r-row.out .st{color:var(--red)}
+  .r-row.me{background:#fff}
+  .r-team.t0 .r-row{box-shadow:inset 5px 0 0 var(--blue)} .r-team.t1 .r-row{box-shadow:inset 5px 0 0 var(--red)}
+  @media (max-width:520px){ .r-list{grid-template-columns:1fr} .r-score .s{min-width:90px} }
+
+  #loading{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--num);font-weight:700;letter-spacing:.3em;font-size:13px;color:var(--ink)}
+  #bootErr{position:absolute;left:12px;right:12px;bottom:12px;background:#fff;border:2px solid #c4182b;border-radius:8px;
+    padding:10px;font:12px/1.5 monospace;color:#c4182b;white-space:pre-wrap;z-index:9;pointer-events:auto}
+  @media (prefers-reduced-motion:reduce){ #banner.show,.feed,.dmg{animation-duration:.01s} }
+</style>
+<script>
+// 起動失敗の保険。module の読み込み自体が落ちても原因を画面に出す
+(function(){
+  var errs = [];
+  function show(){
+    var el = document.getElementById('bootErr');
+    if (!el) return;
+    el.hidden = false;
+    el.textContent = '起動に失敗しました\n' + errs.join('\n') + '\n' + navigator.userAgent;
+  }
+  window.addEventListener('error', function(e){ errs.push(String(e.message || e.type) + (e.filename ? ' @' + e.filename + ':' + e.lineno : '')); });
+  window.addEventListener('unhandledrejection', function(e){ errs.push('promise: ' + (e.reason && e.reason.message || e.reason)); });
+  setTimeout(function(){ if (!window.__tsReady) { if (!errs.length) errs.push('初期化が10秒以内に終わりませんでした'); show(); } }, 10000);
+})();
+</script>
+<script type="importmap">
+{"imports":{"three":"./vendor/three.module.js","three/addons/":"./vendor/addons/"}}
+</script>
+</head>
+<body>
+<div id="loading">LOADING</div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-blade" viewBox="0 0 24 24"><path d="M20 3.5l.5.5L9.8 14.7l-2.6.6.6-2.6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M6 14l4 4M4.5 19.5l3-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-shoot" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="9" width="6" height="6"/><rect x="13" y="3.5" width="4" height="4"/><rect x="15.5" y="10" width="4" height="4"/><rect x="12.5" y="16.5" width="4" height="4"/></g></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-pad" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><path d="M7 13.5l5-5 5 5"/><path d="M9 17l3-3 3 3"/></g></symbol>
+    <symbol id="i-jump" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-out" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 21V8"/><path d="M8 12l4-4 4 4"/><path d="M7 3h10"/></g></symbol>
+    <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 3c3 4 6 7.5 6 11a6 6 0 0 1-12 0c0-3.5 3-7 6-11z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-snipe" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 14h13l3-2h4"/><path d="M7 14l-1 4M11 14v3"/><rect x="8" y="9" width="6" height="2.6" rx="1.3"/></g></symbol>
+    <symbol id="i-dash" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 5l7 7-7 7"/><path d="M4 9h7M2 12h9M4 15h7"/></g></symbol>
+    <symbol id="i-bag" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3c-3 0-5 2.2-5 5v1L4 21h16L17 9V8c0-2.8-2-5-5-5z"/><path d="M9 9h6"/></g></symbol>
+    <symbol id="i-scorpion" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M5 19c3-1 6-4 8-8l4-6 1 1-2 7c-2 4-5 6-9 7z"/><path d="M4 20l2-2"/></g></symbol>
+    <symbol id="i-hound" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18c4 0 6-3 7-6s3-6 8-6"/><path d="M15 3l3 3-3 3"/><circle cx="5" cy="12" r="1.2" fill="currentColor"/><circle cx="9" cy="19" r="1.2" fill="currentColor"/></g></symbol>
+    <symbol id="i-meteora" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.5"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></g></symbol>
+    <symbol id="i-lightning" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 15h12l2-1.5h6"/><path d="M7 15l-1 3"/><path d="M13 4l-3 5h4l-3 4"/></g></symbol>
+    <symbol id="i-ibis" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12.5h14l2-1.5h4v4h-4l-2-1"/><rect x="2" y="11" width="9" height="4.5" rx="1"/><path d="M6 15.5l-1 4M10 15.5v3"/></g></symbol>
+    <symbol id="i-chameleon" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z" stroke-dasharray="2.6 2.4"/><circle cx="12" cy="12" r="2.6"/><path d="M4 20L20 4"/></g></symbol>
+    <symbol id="i-teleport" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="17" r="2.2" stroke-dasharray="2 2"/><circle cx="19" cy="7" r="2.2"/><path d="M7.5 15.5L16.5 8.5" stroke-dasharray="2.2 2.4"/><path d="M13 8h3.5v3.5"/></g></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l2 2.3 3-.4.6 3 2.6 1.5-1.3 2.6 1.3 2.6-2.6 1.5-.6 3-3-.4L12 21l-2-2.3-3 .4-.6-3L3.8 14.6 5.1 12 3.8 9.4l2.6-1.5.6-3 3 .4z"/><circle cx="12" cy="12" r="3"/></g></symbol>
+    <symbol id="i-map" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/></g></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="7" width="18" height="11" rx="2"/><path d="M7 11h1M11 11h1M15 11h1M8 14.5h8"/></g></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-handgun" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 8h17v4H10l-1.5 7H5l1-7H3z"/><path d="M12 12v2h-2"/></g></symbol>
+    <symbol id="i-rifle" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M2 10h14l2-1.5h4V12H12l-1 2H8l-1 3H4.5l1-5H2z"/><path d="M12 12l1 4h2"/></g></symbol>
+    <symbol id="i-shotgun" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M2 9.5h20V12H2zM2 12h7l-2 6H4z"/><path d="M12 12v2.5h5V12"/></g></symbol>
+    <symbol id="i-launcher" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="8" width="13" height="6" rx="1"/><path d="M16 9h4v4h-4M7 14l-1 5h3l1-5"/><circle cx="20.5" cy="5" r="1.5"/></g></symbol>
+    <symbol id="i-aim" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></g></symbol>
+    <symbol id="i-mouse" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v4" stroke-linecap="round"/></g></symbol>
+  </defs>
+</svg>
+
+<div id="hud" hidden>
+  <div id="tags"><div id="lock" hidden><svg viewBox="0 0 70 84"><g fill="none" stroke="#ffc531" stroke-width="3" stroke-linecap="square"><path d="M2 18V2h16M52 2h16v16M68 66v16H52M18 82H2V66"/></g></svg></div></div>
+  <div id="arrows"></div>
+  <svg id="reticle" viewBox="-90 -90 180 180" aria-hidden="true">
+    <path class="track" id="tEn" stroke-width="6" d=""></path>
+    <path class="arc" id="rEn" stroke-width="6" d=""></path>
+    <path class="track" id="tCh" stroke-width="4" d=""></path>
+    <path class="arc" id="rCh" stroke-width="4" d=""></path>
+    <path class="tick" id="kBlade" d=""></path>
+    <path class="tick" id="kShoot" d=""></path>
+    <path class="tick" id="kPad" d=""></path>
+    <circle class="core" r="13"></circle>
+    <circle class="dot" r="2"></circle>
+    <text id="rEnNum" x="-62" y="5" text-anchor="end" font-size="15">100</text>
+  </svg>
+  <div id="scope"></div>
+  <div id="lockState" class="plate"></div>
+  <div id="dmg"></div>
+  <div id="board">
+    <div class="row">
+      <div class="side" id="side0"><small>自隊</small><b id="sc0">0</b></div>
+      <div id="clock">3:00</div>
+      <div class="side" id="side1"><b id="sc1">0</b><small>敵隊</small></div>
+    </div>
+    <div id="pips"><div class="pips t0" id="pips0"></div><div class="pips t1" id="pips1"></div></div>
+  </div>
+  <div id="feed"></div>
+  <div id="call" class="plate"></div>
+  <div id="me" class="plate">
+    <div class="top"><span class="lbl">ENERGY</span><span class="role" id="meRole">アタッカー</span><span class="val" id="enNum">100</span></div>
+    <div class="bar" id="enBar"><i></i></div>
+    <div id="leak"></div>
+  </div>
+  <div id="dock"></div>
+  <div id="hint" class="plate" hidden><svg><use href="#i-aim"/></svg><span>カメラは狙った敵を自動で追う。<span class="nb pc-only">Qで外すと自由に見回せる</span><span class="nb sp-only">照準ボタンで外すと自由に見回せる</span></span></div>
+  <div id="banner"><div class="bb"><b id="bannerText"></b></div><small id="bannerSub"></small></div>
+  <div id="flash"></div>
+  <div id="lowEn"></div>
+  <canvas id="radar" aria-label="ミニマップ（タップで全体地図）"></canvas>
+  <canvas id="bigmap" hidden aria-label="全体地図"></canvas>
+  <div id="spectate" class="plate" hidden><span>強制帰還。再出撃まで <b id="respawnT">8</b> 秒</span></div>
+  <div id="snipeWarn" class="plate" hidden>狙撃されている</div>
+</div>
+<button id="mute" class="plate" aria-label="音の切り替え" hidden></button>
+
+<div id="touch" hidden>
+  <div id="stick"><div id="knob"></div></div>
+  <button class="tb" id="tBlade" aria-label="ブレード"><span class="cd"></span><svg><use href="#i-blade"/></svg></button>
+  <button class="tb" id="tShoot" aria-label="武器の持ち替え"><span class="cd"></span><svg><use href="#i-handgun"/></svg><b class="swap">⇄</b></button>
+  <button class="tb" id="tPad" aria-label="エアステップ"><span class="cd"></span><svg><use href="#i-pad"/></svg><b class="left" id="padLeftT" hidden></b></button>
+  <button class="tb" id="tJump" aria-label="ジャンプ"><svg><use href="#i-jump"/></svg></button>
+  <button class="tb" id="tDash" aria-label="ダッシュ"><span class="cd"></span><svg><use href="#i-dash"/></svg></button>
+  <button class="tb" id="tBag" aria-label="ステルスマント（レーダーから隠れる）"><svg><use href="#i-bag"/></svg></button>
+  <button class="tb" id="tSup3" aria-label="補助"><span class="cd"></span><svg><use href="#i-teleport"/></svg></button>
+  <button class="tb on" id="tLock" aria-label="狙いの固定の切り替え"><svg><use href="#i-aim"/></svg></button>
+</div>
+
+<div class="screen" id="title" hidden>
+  <div class="home">
+    <header class="brand">
+      <p class="tag-line"><span class="a">3</span><span class="v">VS</span><span class="b">3</span><em>TACTICAL CITY ARENA</em></p>
+      <h1 class="logo"><span class="jp">ギアスクワッド</span><span class="en">GEAR SQUAD</span></h1>
+    </header>
+    <nav class="menu" aria-label="メニュー">
+      <button class="go" id="startBtn"><span class="go-t">出撃</span><small id="startSub">市街地 ・ 晴れ</small></button>
+      <button class="mi" data-open="loadout"><svg><use href="#i-gear"/></svg><span class="mi-t">編成</span><small id="miLoadout"></small></button>
+      <button class="mi" data-open="stage"><svg><use href="#i-map"/></svg><span class="mi-t">ステージ</span><small id="miStage"></small></button>
+      <button class="mi" data-open="howto"><svg><use href="#i-help"/></svg><span class="mi-t">操作</span><small>キーとボタン</small></button>
+    </nav>
+    <p class="foot">試作版 ・ 5分で多く強制帰還させた隊の勝ち</p>
+  </div>
+
+  <section class="sheet" id="sh-loadout" hidden aria-label="編成">
+    <header class="sh-head"><button class="sh-back" aria-label="戻る"><svg><use href="#i-back"/></svg></button><h2>編成</h2><span id="trigCount">4 / 4</span></header>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="gear" aria-selected="true">ギア</button>
+      <button role="tab" data-tab="ammo" aria-selected="false">弾</button>
+      <button role="tab" data-tab="stats" aria-selected="false">ステータス</button>
+      <button role="tab" data-tab="look" aria-selected="false">見た目</button>
+    </div>
+    <div class="sh-body">
+      <div class="tab" id="tab-gear">
+        <div class="tp-pre" role="group" aria-label="よく使う組み方">
+          <button class="pre" data-p="attacker" aria-pressed="false">アタッカー型</button>
+          <button class="pre" data-p="allround" aria-pressed="false">オールラウンダー型</button>
+          <button class="pre" data-p="sniper" aria-pressed="false">スナイパー型</button>
+          <button class="pre" data-p="all" aria-pressed="false">万能型</button>
+        </div>
+        <p class="hint-s">4つまで。近接・銃・狙撃は1つずつ（同じ系統を押すと入れ替わる）</p>
+        <div class="tp-group"><h3>近接</h3><div class="tp-row">
+          <button class="tp" data-t="blade" aria-pressed="false"><svg><use href="#i-blade"/></svg><b>ブロードセイバー</b><small>重い一太刀</small></button>
+          <button class="tp" data-t="scorpion" aria-pressed="false"><svg><use href="#i-scorpion"/></svg><b>スティンガー</b><small>軽く速い刃</small></button>
+        </div></div>
+        <div class="tp-group"><h3>銃</h3><div class="tp-row">
+          <button class="tp" data-t="handgun" aria-pressed="false"><svg><use href="#i-handgun"/></svg><b>ハンドガン</b><small>動いても正確・頭は1.5倍</small></button>
+          <button class="tp" data-t="rifle" aria-pressed="false"><svg><use href="#i-rifle"/></svg><b>アサルトライフル</b><small>速い連射・撃つほど散る</small></button>
+          <button class="tp" data-t="shotgun" aria-pressed="false"><svg><use href="#i-shotgun"/></svg><b>ショットガン</b><small>近距離で押し返す</small></button>
+          <button class="tp" data-t="launcher" aria-pressed="false"><svg><use href="#i-launcher"/></svg><b>グレネード</b><small>弧を描く爆発・建物に強い</small></button>
+        </div></div>
+        <div class="tp-group"><h3>狙撃</h3><div class="tp-row">
+          <button class="tp" data-t="snipe" aria-pressed="false"><svg><use href="#i-snipe"/></svg><b>ロングショット</b><small>標準</small></button>
+          <button class="tp" data-t="lightning" aria-pressed="false"><svg><use href="#i-lightning"/></svg><b>ラピッドショット</b><small>速い・軽い</small></button>
+          <button class="tp" data-t="ibis" aria-pressed="false"><svg><use href="#i-ibis"/></svg><b>ヘビーショット</b><small>遅い・重い</small></button>
+        </div></div>
+        <div class="tp-group"><h3>補助</h3><div class="tp-row">
+          <button class="tp" data-t="pad" aria-pressed="false"><svg><use href="#i-pad"/></svg><b>エアステップ</b><small>空中の足場</small></button>
+          <button class="tp" data-t="bag" aria-pressed="false"><svg><use href="#i-bag"/></svg><b>ステルスマント</b><small>レーダーに映らない</small></button>
+          <button class="tp" data-t="chameleon" aria-pressed="false"><svg><use href="#i-chameleon"/></svg><b>ミラージュ</b><small>姿を消す</small></button>
+          <button class="tp" data-t="teleport" aria-pressed="false"><svg><use href="#i-teleport"/></svg><b>ブリンク</b><small>20m 先へ跳ぶ</small></button>
+        </div></div>
+        <p id="trigMsg" role="status"></p>
+      </div>
+      <div class="tab" id="tab-ammo" hidden>
+        <p class="hint-s" id="ammoNote">銃に込める弾。枠は使わない</p>
+        <div class="am-list">
+          <button class="am" data-a="normal" aria-pressed="false"><i class="dot" style="--c:#fff1b8"></i><b>通常弾</b><small>まっすぐ速い。威力が一番高い</small><span class="spec">威力 100% ・ 弾速 100%</span></button>
+          <button class="am" data-a="homing" aria-pressed="false"><i class="dot" style="--c:#5ef0ff"></i><b>追尾弾</b><small>狙った相手へ曲がる。動く相手・遠い相手に</small><span class="spec">威力 75% ・ 弾速 60%</span></button>
+          <button class="am" data-a="blast" aria-pressed="false"><i class="dot" style="--c:#ff9a3c"></i><b>炸裂弾</b><small>当たった所で弾ける。物陰の相手と建物に強い</small><span class="spec">威力 80% ・ 爆風 1.8m ・ 建物 ×2.5</span></button>
+          <button class="am" data-a="curve" aria-pressed="false"><i class="dot" style="--c:#c58bff"></i><b>曲射弾</b><small>横へふくらんでから狙いへ。正面の遮蔽物を回り込む</small><span class="spec">威力 85% ・ 弾速 85%</span></button>
+          <button class="am" data-a="weight" aria-pressed="false"><i class="dot" style="--c:#8f9bb0"></i><b>重り弾</b><small>ほとんど削れないが、当たった数だけ重りが付き、足もジャンプも落ちる</small><span class="spec">威力 25% ・ 1発で6%重く（最大75%）・ 1分続く</span></button>
+        </div>
+      </div>
+      <div class="tab" id="tab-look" hidden>
+        <p class="hint-s">自分の機体だけの見た目。装甲の色は味方と敵を見分ける印なので隊の色のまま</p>
+        <h3 class="sh-h3">ヘルメット</h3><div class="lk-row" data-g="helmet"></div>
+        <h3 class="sh-h3">戦闘服</h3><div class="lk-row" data-g="suit"></div>
+        <h3 class="sh-h3">バイザーの光</h3><div class="lk-row" data-g="glow"></div>
+      </div>
+      <div class="tab" id="tab-stats" hidden>
+        <div class="lv"><b id="lvNum">Lv.1</b><div class="lv-bar"><i id="lvBar"></i></div><small id="lvNext"></small></div>
+        <p class="hint-s">残り <b id="statLeft">0</b> 点　<span class="nb" id="statTotal">合計12点を各1〜5で振り分ける（3が標準）</span></p>
+        <div class="st-list" id="statList"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sheet" id="sh-stage" hidden aria-label="ステージ">
+    <header class="sh-head"><button class="sh-back" aria-label="戻る"><svg><use href="#i-back"/></svg></button><h2>ステージ</h2></header>
+    <div class="sh-body">
+      <div class="sg-list">
+        <button class="sg" data-s="city" aria-pressed="false"><canvas class="sg-map" width="240" height="240"></canvas><b>市街地</b><small>高層ビルと細い路地。ベランダを伝って高所へ</small></button>
+        <button class="sg" data-s="harbor" aria-pressed="false"><canvas class="sg-map" width="240" height="240"></canvas><b>港湾倉庫街</b><small>積み上げたコンテナの高台と、見通しの良い岸壁</small></button>
+      </div>
+      <h3 class="sh-h3">天候</h3>
+      <div class="tp-wx" role="group" aria-label="天候"><button class="wx" data-w="clear" aria-pressed="false">晴れ</button><button class="wx" data-w="storm" aria-pressed="false">暴風雨</button><button class="wx" data-w="snow" aria-pressed="false">雪</button></div>
+    </div>
+  </section>
+
+  <section class="sheet" id="sh-howto" hidden aria-label="操作">
+    <header class="sh-head"><button class="sh-back" aria-label="戻る"><svg><use href="#i-back"/></svg></button><h2>操作</h2></header>
+    <div class="sh-body">
+      <p class="t-keys pc-only" id="keysHelp"></p>
+      <ul class="howto sp-only">
+        <li>左下のスティックで移動、画面をなぞって視点</li>
+        <li>右下のボタンで組んだギアを使う（狙撃は長押し、銃は押している間撃ち続ける）</li>
+        <li>照準ボタンで狙いの固定を外すと、照準の先へ撃てる</li>
+        <li>ミニマップを押すと全体地図</li>
+      </ul>
+      <ul class="howto">
+        <li>EN は体力と弾を兼ねる。尽きると強制帰還し、8秒後に再出撃</li>
+        <li>撃破1点。時間切れで多い隊の勝ち、同点なら延長戦</li>
+        <li>赤い輪がミニマップに出たら、見えない敵が音を立てた場所</li>
+      </ul>
+    </div>
+  </section>
+</div>
+<div class="screen" id="result" hidden>
+  <div class="r-wrap">
+    <div class="r-head" id="resHead"><b id="resTitle">勝利</b><small class="plate" id="resSub"></small></div>
+    <div class="r-score"><div class="s s0" id="resS0">0</div><div class="mid">FINAL</div><div class="s s1" id="resS1">0</div></div>
+    <div class="r-note plate" id="resNote"></div>
+    <div class="r-list"><div class="r-team t0" id="resT0"></div><div class="r-team t1" id="resT1"></div></div>
+    <div class="r-btns"><button class="go" id="retryBtn">もう一戦</button><button class="back" id="titleBtn">ホームへ</button></div>
+  </div>
+</div>
+
+<div id="bootErr" hidden></div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
