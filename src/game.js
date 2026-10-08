@@ -254,9 +254,117 @@ function generateHarbor() {
   return out
 }
 export const HARBOR_BLOCKS = generateHarbor()
+// ---------------------------------------------------------------- 3つ目のステージ: ショッピングモール（中で戦う）
+// 256m x 192m・3階建て（床の上面 0 / 6.8 / 13.6m、屋上 20.4m）。床は下から抜けない本物の天井。
+// 中央に大きな吹き抜け（天窓）。階段は1段0.34m（歩くだけで上り下りできる）で、真上の床には穴が開いている。
+// 南北の壁ぞいに店、通路に柱と売店のカウンター（遮蔽物）。外の狭い駐車場に車
+const FH = 6.8, STEP_R = 0.34, STEP_D = 0.8, NSTEP = 20
+export const MALL = { x: 128, z: 96, floors: [0, FH, FH * 2], roof: FH * 3, hole: { x: 28, z: 20 }, slab: 0.4, stairs: [] }
+// 階段（下の階 k → k+1）: x の位置と、上る向き（+z / -z）。点対称に置く
+for (const [k, sx] of [[0, 92], [1, 52], [0, 116], [1, 80]]) for (const s of [1, -1]) // 各階へ4か所（1か所で上下を封鎖できないように）
+  MALL.stairs.push({ k, x: s * sx, z0: -s * 8, dir: s, w: 6 })
+// 長方形から穴を引いて、残りを長方形の集まりにする
+function subtract(rects, h) {
+  const out = []
+  for (const r of rects) {
+    const ix0 = Math.max(r.x0, h.x0), ix1 = Math.min(r.x1, h.x1), iz0 = Math.max(r.z0, h.z0), iz1 = Math.min(r.z1, h.z1)
+    if (ix0 >= ix1 || iz0 >= iz1) { out.push(r); continue }
+    if (r.z0 < iz0) out.push({ x0: r.x0, x1: r.x1, z0: r.z0, z1: iz0 })
+    if (iz1 < r.z1) out.push({ x0: r.x0, x1: r.x1, z0: iz1, z1: r.z1 })
+    if (r.x0 < ix0) out.push({ x0: r.x0, x1: ix0, z0: iz0, z1: iz1 })
+    if (ix1 < r.x1) out.push({ x0: ix1, x1: r.x1, z0: iz0, z1: iz1 })
+  }
+  return out
+}
+function generateMall() {
+  const r = rng(20261013)
+  const out = []
+  const add = b => out.push(b)
+  const { x: MX, z: MZ, roof: RH, hole: H, slab: SL } = MALL
+  const T = 0.6 // 外壁の厚さ
+  // 外壁: 入口（幅8m・高さ4m）の上は梁
+  const wallRun = (axis, c, from, to, doors) => {
+    let p = from
+    for (const d of doors) {
+      const a = d - 4
+      if (a > p) add(axis === 'x' ? { x: (p + a) / 2, z: c, w: a - p, d: T, h: RH, kind: 'mwall', ext: true } : { x: c, z: (p + a) / 2, w: T, d: a - p, h: RH, kind: 'mwall', ext: true })
+      add(axis === 'x' ? { x: d, z: c, w: 8, d: T, h: RH, y0: 4, kind: 'mwall', ext: true } : { x: c, z: d, w: T, d: 8, h: RH, y0: 4, kind: 'mwall', ext: true })
+      p = d + 4
+    }
+    if (to > p) add(axis === 'x' ? { x: (p + to) / 2, z: c, w: to - p, d: T, h: RH, kind: 'mwall', ext: true } : { x: c, z: (p + to) / 2, w: T, d: to - p, h: RH, kind: 'mwall', ext: true })
+  }
+  wallRun('x', MZ, -MX, MX, [-80, -40, 0, 40, 80]); wallRun('x', -MZ, -MX, MX, [-80, -40, 0, 40, 80])
+  wallRun('z', MX, -MZ, MZ, [-40, 0, 40]); wallRun('z', -MX, -MZ, MZ, [-40, 0, 40])
+  // 床と屋上: 吹き抜けと、その階に上がってくる階段の上を穴にする
+  const levels = [MALL.floors[1], MALL.floors[2], RH]
+  levels.forEach((top, li) => {
+    let rects = [{ x0: -MX + T / 2, x1: MX - T / 2, z0: -MZ + T / 2, z1: MZ - T / 2 }]
+    rects = subtract(rects, { x0: -H.x, x1: H.x, z0: -H.z, z1: H.z })
+    for (const s of MALL.stairs) if (s.k === li) { const za = s.z0 - s.dir * 2, zb = s.z0 + s.dir * NSTEP * STEP_D; /* 穴は最後の段の位置で止める（先まで開けると上り切った所で落ちる） */ rects = subtract(rects, { x0: s.x - s.w / 2 - 0.5, x1: s.x + s.w / 2 + 0.5, z0: Math.min(za, zb), z1: Math.max(za, zb) }) }
+    for (const q of rects) add({ x: (q.x0 + q.x1) / 2, z: (q.z0 + q.z1) / 2, w: q.x1 - q.x0, d: q.z1 - q.z0, h: top, y0: top - SL, kind: 'mfloor', roof: top === RH })
+  })
+  // 階段（段は床から積む。最後の段の上面が上の階の床の上面）
+  for (const s of MALL.stairs) {
+    const fl = MALL.floors[s.k]
+    for (let i = 1; i <= NSTEP; i++) add({ x: s.x, z: s.z0 + s.dir * (i - 0.5) * STEP_D, w: s.w, d: STEP_D, h: fl + i * STEP_R, y0: fl || undefined, kind: 'mstep' })
+  }
+  // 吹き抜けと階段の穴のまわりの手すり（1m。体の半分が隠れる）
+  for (const fl of MALL.floors.slice(1)) {
+    for (const sz of [1, -1]) add({ x: 0, z: sz * (H.z + 0.15), w: H.x * 2, d: 0.3, h: fl + 1.0, y0: fl, kind: 'mrail' })
+    for (const sx of [1, -1]) add({ x: sx * (H.x + 0.15), z: 0, w: 0.3, d: H.z * 2, h: fl + 1.0, y0: fl, kind: 'mrail' })
+    // 手すりの一部を広告板（2.4m）でふさぐ。上の階から吹き抜け全体を見下ろして撃てないように
+    for (const s of [1, -1]) { add({ x: s * 10, z: s * (H.z + 0.15), w: 12, d: 0.35, h: fl + 2.4, y0: fl, kind: 'mwall', ad: true }); add({ x: s * (H.x + 0.15), z: -s * 8, w: 0.35, d: 10, h: fl + 2.4, y0: fl, kind: 'mwall', ad: true }) }
+  }
+  // 店: 南北の壁ぞいに奥行き14m。仕切り壁と、通路側の上の看板壁（下は開いた店先）
+  const SHOP_D = 14, SHOP_W = 16
+  for (const fl of MALL.floors) {
+    const ceil = fl + FH - SL
+    for (const sz of [1, -1]) {
+      const back = sz * (MZ - T / 2), front = sz * (MZ - T / 2 - SHOP_D)
+      for (let x = -MX + T / 2; x <= MX - SHOP_W; x += SHOP_W) {
+        add({ x, z: (back + front) / 2, w: 0.3, d: SHOP_D, h: ceil, y0: fl || undefined, kind: 'mwall' })
+        const door = fl === 0 && [-80, -40, 0, 40, 80].some(d => Math.abs(x + SHOP_W / 2 - d) < 9) // 外の入口の前は店にしない（通り抜けられる）
+        if (!door) add({ x: x + SHOP_W / 2, z: front, w: SHOP_W - 0.3, d: 0.3, h: ceil, y0: fl + 3.4, kind: 'mwall', sign: true, shop: Math.floor(r() * 8) })
+      }
+    }
+  }
+  // 柱（各階、床から天井まで）
+  for (const fl of MALL.floors) for (const px of [-108, -72, -36, 36, 72, 108]) for (const pz of [-36, 36]) add({ x: px, z: pz, w: 1.4, d: 1.4, h: fl + FH - SL, y0: fl || undefined, kind: 'mwall' })
+  // 売店のカウンター・ベンチ（1.1m の遮蔽物）。南半分を作って点対称に写す
+  const kiosks = []
+  for (const fl of MALL.floors) for (let i = 0; i < 9; i++) {
+    const x = -112 + r() * 224, z = -(24 + r() * 46), w = 3 + Math.floor(r() * 3), d = 1.4
+    if (MALL.stairs.some(s => Math.abs(x - s.x) < 8 && Math.abs(z) < 14)) continue
+    kiosks.push({ x, z, w, d, h: fl + 1.1, y0: fl || undefined, kind: 'mrail', counter: true })
+  }
+  kiosks.push({ x: 0, z: 0, w: 10, d: 7, h: 0.9, kind: 'mrail', counter: true }) // 1階の噴水の縁
+  // 通路の中央に植え込みとベンチを約10m おきに並べ、見通しを40m 以上続けない（遮蔽の鎖）
+  for (const fl of MALL.floors) for (let x = -116; x <= -6; x += 11) for (const z of [-60, -36]) {
+    if (MALL.stairs.some(s => Math.abs(x - s.x) < 7 && Math.abs(z) < 14) || (Math.abs(x) < 32 && Math.abs(z) < 24)) continue
+    const big = (Math.round(x / 11) + (z === -60 ? 0 : 1)) % 2 === 0
+    kiosks.push({ x, z, w: big ? 3.2 : 2.4, d: big ? 2.4 : 1.2, h: fl + (big ? 1.25 : 0.9), y0: fl || undefined, kind: 'mrail', counter: true, planter: big })
+  }
+  for (const k of kiosks) { add(k); if (k.x || k.z) add({ ...k, x: -k.x, z: -k.z }) }
+  // 外の駐車場（建物のまわりの帯）に車
+  const cars = []
+  for (let i = 0; i < 40; i++) {
+    const side = r() < 0.7, x = side ? -150 + r() * 300 : (r() < 0.5 ? -1 : 1) * (MX + 8 + r() * 20), z = side ? -(MZ + 10 + r() * 50) : -r() * MZ
+    if (Math.abs(x) > MAP_HALF - 6 || Math.abs(z) > MAP_HALF - 6) continue
+    const long = !side
+    const c = { x, z, w: long ? 1.9 : 4.4, d: long ? 4.4 : 1.9, h: 1.5, car: true, tint: Math.floor(r() * 5) }
+    if (cars.some(o => Math.abs(o.x - c.x) < (o.w + c.w) / 2 + 1 && Math.abs(o.z - c.z) < (o.d + c.d) / 2 + 1)) continue
+    if ([-80, -40, 0, 40, 80].some(d => Math.abs(c.x - d) < 7) && Math.abs(c.z) < MZ + 8) continue
+    cars.push(c)
+  }
+  for (const c of cars) { add(c); add({ ...c, x: -c.x, z: -c.z }) }
+  for (const [i, b] of out.entries()) { b.id = i; if (b.y0 === undefined) delete b.y0 }
+  return out
+}
+export const MALL_BLOCKS = generateMall()
 export const STAGES = {
   city: { name: '市街地', blocks: BLOCKS, roads: ROADS, parks: PARKS },
   harbor: { name: '港湾倉庫街', blocks: HARBOR_BLOCKS, roads: [], parks: HARBOR_PARKS },
+  mall: { name: 'ショッピングモール', blocks: MALL_BLOCKS, roads: [], parks: [] },
 }
 for (const k in STAGES) STAGES[k].nests = STAGES[k].blocks.filter(b => b.nest)
 // 検証用の小さい街（以前の配置）。テストはこちらで回して、地形が変わっても検査の前提がずれないようにする
@@ -273,7 +381,8 @@ export const SPAWN_GAP = 150
 const REGROUP_T = 12 // CPU が味方と合流しに向かう時間
 function pickSpawns(st) {
   const free = (x, z) => Math.abs(x) < MAP_HALF - 4 && Math.abs(z) < MAP_HALF - 4 &&
-    !st.blocks.some(b => Math.abs(x - b.x) < b.w / 2 + 1.5 && Math.abs(z - b.z) < b.d / 2 + 1.5)
+    !st.blocks.some(b => base(b) < 2.5 && Math.abs(x - b.x) < b.w / 2 + 1.5 && Math.abs(z - b.z) < b.d / 2 + 1.5) && // 頭上の床・梁は気にしない
+    (st.stage !== 'mall' || (Math.abs(x) < MALL.x - 3 && Math.abs(z) < MALL.z - 3)) // モールは中から出撃
   for (let tries = 0; tries < 400; tries++) {
     const pts = []
     for (let i = 0; i < 3; i++) {
@@ -459,11 +568,12 @@ function damageBlock(st, b, amount) {
 }
 // 浮いた板（ベランダ）は y0 から上だけ。ふつうの建物は地面から
 const base = b => b.y0 || 0
+const oneWay = b => b.y0 && b.kind === 'ledge' // ベランダだけが下から抜けられる床。モールの床は天井として頭がぶつかる
 
 function collideBlocks(st, u) {
   for (const b of st.blocks) {
-    if (b.y0) continue // 浮いた足場（ベランダ）は下からすり抜けて上に乗る床。横からは押さない（壁側へ押してビルにめり込ませないため）
-    if (u.y >= b.h - 0.35) continue // 上に乗っている
+    if (oneWay(b)) continue // 浮いた床（ベランダ・モールの床）は下からすり抜けて上に乗る。横からは押さない（壁側へ押してめり込ませないため）
+    if (u.y >= b.h - 0.35 || u.y + UNIT_H <= base(b)) continue // 上に乗っている・下をくぐっている（入口の上の梁など）
     const hx = b.w / 2, hz = b.d / 2
     const cx = Math.max(b.x - hx, Math.min(u.x, b.x + hx))
     const cz = Math.max(b.z - hz, Math.min(u.z, b.z + hz))
@@ -539,6 +649,7 @@ function damage(st, target, amount, leak, src, kind, dirx, dirz) {
   target.wounds.push({ rate: leak, t: amount * LEAK_SEC_PER_DMG })
   target.leak = Math.min(LEAK_MAX, target.wounds.reduce((a, w) => a + w.rate, 0))
   target.lastHitBy = src.id
+  target.revealT = 0.4 // ミラージュ中でも、撃たれた瞬間だけ輪郭がゆらめく
   target.lastHow = kind === 'blade' ? src.melee : kind === 'snipe' ? src.sniper : src.gun // 何で倒されたか（画面に出す）
   target.hurtT = 0
   st.events.push({ type: 'hit', kind, id: target.id, src: src.id, x: target.x, y: target.y + 1.1, z: target.z, amount })
@@ -567,7 +678,8 @@ function respawnPoint(st, u) {
   let best = null, bestScore = -Infinity
   for (let k = 0; k < 60; k++) {
     const x = (st.rand() * 2 - 1) * (MAP_HALF - 6), z = (st.rand() * 2 - 1) * (MAP_HALF - 6)
-    if (st.blocks.some(b => Math.abs(x - b.x) < b.w / 2 + 1.5 && Math.abs(z - b.z) < b.d / 2 + 1.5)) continue
+    if (st.blocks.some(b => base(b) < 2.5 && Math.abs(x - b.x) < b.w / 2 + 1.5 && Math.abs(z - b.z) < b.d / 2 + 1.5)) continue
+    if (st.stage === 'mall' && (Math.abs(x) > MALL.x - 3 || Math.abs(z) > MALL.z - 3)) continue
     const df = foes.length ? Math.min(...foes.map(e => Math.hypot(e.x - x, e.z - z))) : 999
     const dm = mates.length ? Math.min(...mates.map(m => Math.hypot(m.x - x, m.z - z))) : 0
     const score = Math.min(df, RADAR_RANGE + 15) * 2 - dm * 0.3
@@ -777,6 +889,7 @@ function stepUnit(st, u, input) {
   const control = (u.snipeT >= 0 ? sniperSpec(u).slow : 1) * (u.shootT >= 0 && u.gun ? GUNS[u.gun].slow : 1) * (slashing && u.grounded ? 0.35 : 1) * (u.grounded ? 1 : 0.75)
   u.slowT = Math.max(0, (u.slowT || 0) - dt); if (u.slowT <= 0) { u.slow = 0; u.weights = 0 }
   u.kbT = Math.max(0, (u.kbT || 0) - dt)
+  u.revealT = Math.max(0, (u.revealT || 0) - dt)
   u.bloom = Math.max(0, (u.bloom || 0) - dt * 0.08) // 撃つのをやめると散りが収まる
   const heavy = 1 - (u.slow || 0) // 重り弾の重さ
   const run = RUN * statSpd(u.stats.spd) * heavy * (adverse(u) ? ADVERSITY_SPD : 1)
@@ -837,7 +950,7 @@ function stepUnit(st, u, input) {
     if (Math.hypot(dx, dz) < 0.1) { dx = -Math.sin(u.yaw); dz = -Math.cos(u.yaw) } // 入力が無ければ後ろへ
     const l = Math.hypot(dx, dz)
     u.dashX = dx / l; u.dashZ = dz / l
-    u.dashT = 0; u.dashCd = DASH_CD // ダッシュは EN を使わない（待ち時間だけ）
+    u.dashT = 0; u.dashCd = DASH_CD; u.revealT = 0.4 // ダッシュは EN を使わない（待ち時間だけ）。踏み出しの瞬間はミラージュがゆらめく
     st.events.push({ type: 'dash', id: u.id, x: u.x, y: u.y, z: u.z })
   }
   if (u.dashT >= 0) {
@@ -916,6 +1029,12 @@ function stepUnit(st, u, input) {
   u.x = Math.max(-lim, Math.min(lim, u.x)); u.z = Math.max(-lim, Math.min(lim, u.z))
   collideBlocks(st, u)
   u.y += u.vy * dt
+  // 天井: 上へ動いて頭が浮いた物（床・梁）の下面に入ったら止める
+  if (u.vy > 0) for (const b of st.blocks) {
+    const bb = base(b)
+    if (!bb || oneWay(b) || prevY + UNIT_H > bb + 0.05 || u.y + UNIT_H <= bb) continue
+    if (Math.abs(u.x - b.x) < b.w / 2 + UNIT_R * 0.5 && Math.abs(u.z - b.z) < b.d / 2 + UNIT_R * 0.5) { u.y = bb - UNIT_H; u.vy = 0 }
+  }
   const g = groundAt(st, u.x, u.z, prevY)
   if (u.y <= g) {
     if (!u.grounded) st.events.push({ type: 'land', id: u.id, x: u.x, y: g, z: u.z, hard: u.vy < -12 })
@@ -963,8 +1082,8 @@ function routeTo(st, u, tx, tz) {
   const dx = tx - u.x, dz = tz - u.z, d = Math.hypot(dx, dz) || 1
   let block = null, bt = Infinity
   for (const b of st.blocks) {
-    if (u.y >= b.h - 0.35 || b.y0) continue // 乗っている高さより低い建物と、頭上の足場はさえぎらない
-    const t = rayBox(u.x, 1, u.z, dx / d, 0, dz / d, b)
+    if (u.y >= b.h - 0.35 || oneWay(b) || u.y + UNIT_H <= base(b)) continue // 乗っている高さより低い物・浮いた床・頭上の梁はさえぎらない
+    const t = rayBox(u.x, u.y + 1, u.z, dx / d, 0, dz / d, b)
     if (t < d && t < bt) { bt = t; block = b }
   }
   if (!block) { u.ai.wp = null; return [dx / d, dz / d] }
@@ -983,7 +1102,7 @@ function routeTo(st, u, tx, tz) {
     const cx = c[0] - u.x, cz = c[1] - u.z, cl = Math.hypot(cx, cz)
     if (cl < 1.0 || (ai.wpDone && ai.wpDone[0] === c[0] && ai.wpDone[1] === c[1])) continue
     // 自分から角へまっすぐ行けるか（その建物自身にさえぎられないか）
-    if (rayBox(u.x, 1, u.z, cx / cl, 0, cz / cl, block) < cl - 0.1) continue
+    if (rayBox(u.x, u.y + 1, u.z, cx / cl, 0, cz / cl, block) < cl - 0.1) continue
     const sc = cl + Math.hypot(tx - c[0], tz - c[1])
     if (sc < bs) { bs = sc; best = c }
   }
@@ -1102,6 +1221,20 @@ function aiInput(st, u) {
   let wx = 0, wz = 0
   // 相手との間に建物があれば、その建物の角を経由して回り込む
   const toward = () => {
+    // モールで相手が別の階にいる: 上なら近い階段の下り口へ行って上る。下なら吹き抜けへ向かって飛び降りる
+    if (st.stage === 'mall' && Math.abs(t.y - u.y) > 2.5) {
+      const lv = Math.round(u.y / FH)
+      if (t.y > u.y) {
+        const ss = MALL.stairs.filter(s => s.k === lv)
+        if (ss.length) {
+          const s = ss.reduce((a, b) => Math.hypot(b.x - u.x, b.z0 - u.z) < Math.hypot(a.x - u.x, a.z0 - u.z) ? b : a)
+          const onStair = Math.abs(u.x - s.x) < s.w / 2 && (u.z - s.z0) * s.dir > -1.5 && (u.z - s.z0) * s.dir < NSTEP * STEP_D + 1
+          if (onStair) { wx = (s.x - u.x) * 0.3; wz = s.dir; return }
+          const ex = s.x, ez = s.z0 - s.dir * 1.5
+          const r = routeTo(st, u, ex, ez); wx = r[0]; wz = r[1]; return
+        }
+      } else { const r = routeTo(st, u, 0, 0); wx = r[0]; wz = r[1]; return }
+    }
     const r = routeTo(st, u, t.x, t.z)
     wx = r[0]; wz = r[1]
   }

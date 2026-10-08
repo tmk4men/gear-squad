@@ -709,5 +709,43 @@ const gunDuel = (seed, gun, ammo, ex, ez) => {
   const far = sense => { const s2 = mk(99, { sense }); killAllBut(s2, [0]); const m = s2.units[0]; put(m, 34, 0); m.en = 20; for (let i = 0; i < 60; i++) G.step(s2, { mx: 0, mz: -1 }); return Math.abs(m.z) }
   ok(far('adversity') > far(null) * 1.07, '逆境中は足が速い')
 }
+// ---------------------------------------------------------------- ショッピングモール
+const mallSt = seed => { const st = G.createState(seed, { spawn: 'fixed', stage: 'mall' }); st.units.forEach(u => { if (u.id) { u.alive = false; u.outT = -1 } }); return st }
+{ // 入口から歩いて中に入れる
+  const st = mallSt(100), me = st.units[0]
+  put(me, 0, -G.MALL.z - 6)
+  for (let i = 0; i < 120; i++) G.step(st, { mx: 0, mz: 1 })
+  ok(me.z > -G.MALL.z + 3 && me.y === 0, '南の入口から歩いて中に入れる', `z=${me.z.toFixed(1)}`)
+}
+{ // 階段はジャンプせずに歩くだけで上の階へ。階段の上は天井が開いている
+  const st = mallSt(101), me = st.units[0], s0 = G.MALL.stairs.find(s => s.k === 0)
+  put(me, s0.x, s0.z0 - s0.dir * 2)
+  for (let i = 0; i < 400; i++) G.step(st, { mx: 0, mz: s0.dir })
+  ok(Math.abs(me.y - G.MALL.floors[1]) < 0.05, '1階の階段を歩くだけで2階に上がれる', `y=${me.y.toFixed(2)}`)
+  const s1 = G.MALL.stairs.find(s => s.k === 1)
+  put(me, s1.x, s1.z0 - s1.dir * 2); me.y = G.MALL.floors[1]
+  for (let i = 0; i < 400; i++) G.step(st, { mx: 0, mz: s1.dir })
+  ok(Math.abs(me.y - G.MALL.floors[2]) < 0.05, '2階の階段で3階に上がれる', `y=${me.y.toFixed(2)}`)
+}
+{ // 天井: 1階で跳んでも2階の床を突き抜けない
+  const st = G.createState(102, { spawn: 'fixed', stage: 'mall', triggers: ['blade', 'pad'] }); st.units.forEach(u => { if (u.id) { u.alive = false; u.outT = -1 } })
+  const me = st.units[0]
+  put(me, -60, 60) // 店の前の通路（真上は2階の床）
+  G.step(st, { pad: true }); let top = 0
+  for (let i = 0; i < 20 && !me.grounded || i < 5; i++) { G.step(st, {}); top = Math.max(top, me.y) }
+  for (let i = 0; i < 120; i++) { G.step(st, {}); top = Math.max(top, me.y) }
+  ok(top + G.UNIT_H <= G.MALL.floors[1] - G.MALL.slab + 0.01 && me.y === 0, '1階でエアステップを使っても天井で止まる', `頭の最高=${(top + G.UNIT_H).toFixed(2)}m 天井=${(G.MALL.floors[1] - G.MALL.slab).toFixed(2)}m`)
+}
+{ // 出撃はモールの中
+  let outside = 0
+  for (let i = 0; i < 20; i++) for (const u of G.createState(300 + i, { stage: 'mall' }).units) if (Math.abs(u.x) > G.MALL.x || Math.abs(u.z) > G.MALL.z) outside++
+  ok(outside === 0, '出撃位置は全部モールの中', outside)
+}
+{ // CPU はモールでも動ける（引っかかりが少なく、撃ち合いが起きる）
+  let kills = 0, nan = 0
+  for (let i = 0; i < 4; i++) { const st = G.createState(110 + i, { autoplay: true, stage: 'mall' }); let s = 0
+    while (st.phase === 'play' && s < 60 * 180) { G.step(st, {}); s++; for (const e of G.drainEvents(st)) if (e.type === 'bailout') kills++; if (s % 60 === 0) for (const u of st.units) if (![u.x, u.y, u.z].every(Number.isFinite)) nan++ } }
+  ok(kills / 4 > 3 && nan === 0, 'モールでも3分で撃破が起きる', `1試合あたり${(kills / 4).toFixed(1)}`)
+}
 console.log(`\n${pass} OK / ${fail} FAIL`)
 process.exit(fail ? 1 : 0)

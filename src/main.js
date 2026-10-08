@@ -2,10 +2,10 @@
 // 時間で進むものは全部固定60Hzステップの中で進める（draw では状態を描くだけ）。
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { buildCity } from './city.js'
+import { buildCity } from './city.js?v=202610080558'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import * as G from './game.js'
+import * as G from './game.js?v=202610080558'
 
 const $ = id => document.getElementById(id)
 const clamp01 = v => Math.max(0, Math.min(1, v))
@@ -249,7 +249,7 @@ const RUN_NATURAL = 2.51 * BODY_K
 const OVERLAYS = ['Jump', 'Punch', 'Death', 'Dance', 'ThumbsUp', 'Wave', 'Yes', 'No']
 
 async function loadRobot() {
-  robotGltf = await new GLTFLoader().loadAsync('./models/RobotExpressive.glb')
+  robotGltf = await new GLTFLoader().loadAsync('./models/RobotExpressive.glb?v=202610080558')
 }
 
 // 見た目（自機だけ）: ヘルメットの形・戦闘服の色・バイザーの光。装甲の色は隊の見分けなので変えない
@@ -555,7 +555,9 @@ function stepUnitView(dt, u, v, frozen) {
   }
   // 再出撃直後の守られている間は点滅させる
   // ミラージュ中の敵は、体・武器・足元の輪・影まで全部見せない（PvP で完全に消える）
-  const cloaked = u.cham && u.team !== 0
+  const cloaked = u.cham && u.team !== 0 && !(u.revealT > 0) // 撃たれた・踏み出した瞬間だけゆらめいて見える
+  // ミラージュ中は誰の目にも影を落とさない（地面の影で居場所が分からないように）
+  if (v.shadowOff !== !!u.cham) { v.shadowOff = !!u.cham; v.root.traverse(o => { if (o.isMesh) { if (o.userData.cs === undefined) o.userData.cs = o.castShadow; o.castShadow = u.cham ? false : o.userData.cs } }) }
   v.root.visible = !cloaked && (!(u.shieldT > 0) || Math.floor(u.shieldT * 10) % 2 === 0)
   // 足音: 地面を走った距離が歩幅ぶんたまるたびに鳴らす（自機と近くの機体だけ）
   if (u.grounded && u.speed > 1 && mode === 'play' && !(u.cham && u.team !== 0)) {
@@ -1190,6 +1192,7 @@ function drawRadar(st) {
   x.strokeStyle = 'rgba(255,255,255,.35)'; x.lineWidth = 1 / sc
   x.strokeRect(-G.MAP_HALF, -G.MAP_HALF, G.MAP_HALF * 2, G.MAP_HALF * 2)
   for (const b of st.blocks) {
+    if (b.kind === 'mwall' || (b.kind === 'mfloor' && b.roof)) { x.fillStyle = b.kind === 'mwall' ? 'rgba(220,230,240,.75)' : 'rgba(200,212,224,.12)'; x.fillRect(b.x - b.w / 2, b.z - b.d / 2, b.w, b.d); continue } // モールの壁と屋根
     if (b.kind && b.kind !== 'rubble') continue
     x.fillStyle = b.kind === 'rubble' ? 'rgba(170,150,130,.35)' : b.nest ? 'rgba(255,214,90,.55)' : b.h > 17 ? 'rgba(200,212,224,.55)' : 'rgba(200,212,224,.28)'
     x.fillRect(b.x - b.w / 2, b.z - b.d / 2, b.w, b.d)
@@ -1200,9 +1203,16 @@ function drawRadar(st) {
     if (u.team === 1 && !G.detectable(st, 0, u) && !blip) continue // マントを着て見えていない敵はレーダーに出ない
     if (blip) { x.strokeStyle = 'rgba(255,107,94,.85)'; x.lineWidth = 0.45; x.beginPath(); x.arc(u.x, u.z, 1.6, 0, 7); x.stroke(); continue }
     if (u.team === 0 && u.bag) { x.strokeStyle = 'rgba(255,255,255,.7)'; x.lineWidth = 0.35; x.beginPath(); x.arc(u.x, u.z, 2.4, 0, 7); x.stroke() }
+    // モールで別の階にいる相手は ▲（上の階）／▼（下の階）
+    const fdy = st.stage === 'mall' && !u.player ? u.y - f.y : 0
+    if (Math.abs(fdy) > 3) {
+      x.save(); x.translate(u.x, u.z); x.rotate(-(camYaw - Math.PI)); x.fillStyle = u.team === 0 ? '#6fa2ff' : '#ff6b5e'
+      const s = 2.2, up = fdy > 0 ? -1 : 1
+      x.beginPath(); x.moveTo(0, up * s); x.lineTo(s, -up * s * 0.8); x.lineTo(-s, -up * s * 0.8); x.closePath(); x.globalAlpha = 0.85; x.fill(); x.globalAlpha = 1; x.restore(); continue
+    }
     x.save(); x.translate(u.x, u.z); x.rotate(-u.yaw)
     x.fillStyle = u.team === 0 ? (u.player ? '#ffffff' : '#6fa2ff') : '#ff6b5e'
-    const s = u.player ? 1.9 : 1.5
+    const s = u.player ? 2.4 : 1.6
     x.beginPath(); x.moveTo(0, s * 1.2); x.lineTo(s * 0.8, -s * 0.8); x.lineTo(-s * 0.8, -s * 0.8); x.closePath(); x.fill()
     x.restore()
   }
@@ -1250,6 +1260,7 @@ function drawBigMap(st) {
   x.strokeStyle = 'rgba(255,255,255,.45)'; x.lineWidth = 1.5 / sc
   x.strokeRect(-G.MAP_HALF, -G.MAP_HALF, G.MAP_HALF * 2, G.MAP_HALF * 2)
   for (const b of st.blocks) {
+    if (b.kind === 'mwall' || (b.kind === 'mfloor' && b.roof)) { x.fillStyle = b.kind === 'mwall' ? 'rgba(220,230,240,.8)' : 'rgba(200,212,224,.12)'; x.fillRect(b.x - b.w / 2, b.z - b.d / 2, b.w, b.d); continue }
     if (b.kind && b.kind !== 'rubble') continue
     x.fillStyle = b.kind === 'rubble' ? 'rgba(160,140,120,.35)' : b.nest ? 'rgba(230,196,96,.45)' : `rgba(200,212,224,${Math.min(0.75, 0.2 + b.h / 100).toFixed(2)})`
     x.fillRect(b.x - b.w / 2, b.z - b.d / 2, b.w, b.d)
@@ -1586,6 +1597,10 @@ function stepCamera(dt, st) {
     // 壁にぴったり背を付けたときは、寄った分だけ上から見下ろして自機の頭に埋まらないようにする
     if (maxD < 1.6) camPos.y += (1.6 - maxD) * 0.9
     camPos.y = Math.max(0.35, camPos.y)
+    // まだ箱（入口の梁・階段の段など）の中にいたら、自機の方へ少しずつ寄せて外に出す
+    for (let n = 0; n < 24 && buildings.some(bd => !bd.dead && bd.box.containsPoint(camPos)); n++) camPos.lerp(pivot, 0.15)
+    // 床や屋上の薄い板の中にカメラが入ったら、板の上に出す（モールの屋上で見下ろすとき）
+    for (const bd of buildings) if (!bd.dead && bd.box.max.y - bd.box.min.y < 1 && bd.box.containsPoint(camPos)) camPos.y = bd.box.max.y + 0.3
     camLook.copy(origin).addScaledVector(fwd3, 12)
   }
   shake = Math.max(0, shake - dt * 3)
@@ -1631,7 +1646,7 @@ function fadeFollowed(f, d, dt) {
     }
     // ミラージュ: 味方には薄く、見つかっていない敵は見えない
     const cu = state && state.units[v.id]
-    if (cu && cu.cham) want = Math.min(want, cu.team === 0 ? 0.3 : G.detectable(state, 0, cu) ? 0.3 : 0)
+    if (cu && cu.cham) want = Math.min(want, cu.team === 0 ? 0.3 : cu.revealT > 0 ? 0.12 + Math.random() * 0.1 : 0)
     v.near += (want - v.near) * Math.min(1, dt * 12)
     const see = v.near > 0.98
     for (const m of v.mats) {
@@ -1746,7 +1761,7 @@ const collapsing = [], rubbleMeshes = []
 const rubbleMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 })
 function tintBuilding(bd, ratio) {
   const k = 0.5 + 0.5 * ratio
-  for (const m of bd.mats) m.color.setScalar(k)
+  for (const m of bd.mats) { if (!m.userData.col0) m.userData.col0 = m.color.clone(); m.color.copy(m.userData.col0).multiplyScalar(k) } // 元の色を暗くする（白で上書きしない）
 }
 function startCollapse(ev) {
   const bd = buildings.find(x => x.id === ev.id)
@@ -2336,6 +2351,7 @@ for (const c of document.querySelectorAll('.sg-map')) {
   x.fillStyle = 'rgba(255,255,255,.07)'
   for (const rd of st.roads) { x.fillRect(0, (rd.c - rd.w / 2 + E) * sc, S, rd.w * sc); x.fillRect((rd.c - rd.w / 2 + E) * sc, 0, rd.w * sc, S) }
   for (const b of st.blocks) {
+    if (b.kind === 'mwall' || (b.kind === 'mfloor' && b.roof)) { x.fillStyle = b.kind === 'mwall' ? '#dfe6ee' : 'rgba(210,220,232,.18)'; x.fillRect((b.x - b.w / 2 + E) * sc, (b.z - b.d / 2 + E) * sc, Math.max(1, b.w * sc), Math.max(1, b.d * sc)); continue }
     if (b.kind) continue
     x.fillStyle = b.cont ? ['#b8432f', '#2f6aa8', '#3f8a4a', '#d0882a', '#7d8790'][b.tint] : `rgba(210,220,232,${Math.min(0.9, 0.25 + b.h / 70).toFixed(2)})`
     x.fillRect((b.x - b.w / 2 + E) * sc, (b.z - b.d / 2 + E) * sc, Math.max(1, b.w * sc), Math.max(1, b.d * sc))

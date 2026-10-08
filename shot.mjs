@@ -22,7 +22,7 @@ await page.goto(`http://localhost:${PORT}/`)
 await page.waitForFunction(() => window.__tsReady, null, { timeout: 20000 })
 await page.waitForTimeout(600)
 const wx = process.argv.find(a => ['storm', 'snow', 'clear'].includes(a))
-if (process.argv.includes('harbor')) { await page.evaluate(() => document.querySelector('.sg[data-s="harbor"]').click()); await page.waitForTimeout(1500) }
+for (const sg of ['harbor', 'mall']) if (process.argv.includes(sg)) { await page.evaluate(k => document.querySelector(`.sg[data-s="${k}"]`).click(), sg); await page.waitForTimeout(1500) }
 if (wx) await page.evaluate(w => document.querySelector(`.wx[data-w="${w}"]`).click(), wx)
 if (scene !== 'title') {
   await page.evaluate(sn => { ts.pause(true); ts.start(sn ? { loadout: 'sniper' } : {}) }, scene.startsWith('snipe'))
@@ -123,6 +123,12 @@ if (scene !== 'title') {
   if (scene === 'bail2' || scene === 'bail3') await page.evaluate(late => { const s = ts.raw(); for (const id of [1, 2, 4, 5]) { ts.place(id, 150, 150 - id); s.units[id].ai.think = 99 } window.__tsNoAuto = true; ts.place(0, 0, 40, { yaw: Math.PI }); ts.place(3, 0, 33); s.units[3].ai.think = 99; s.units[3].ai.targetId = -1; ts.look(Math.PI, 0.1); ts.run(5); s.units[3].en = 0.01; s.units[3].lastHitBy = 0; s.units[3].wounds.push({ rate: 1, t: 2 }); ts.run(late ? 36 : 12) }, scene === 'bail3')
   // 武器の持ち替え: 2番（銃）を持った後ろ姿
   if (scene === 'swap') await page.evaluate(() => { const s = ts.raw(); for (const id of [1, 2, 3, 4, 5]) { ts.place(id, 150, 150 - id); s.units[id].ai.think = 99 } window.__tsNoAuto = true; ts.place(0, 0, 40, { yaw: Math.PI }); ts.look(Math.PI + 0.6, 0.1); dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit2' })); ts.run(+(new URLSearchParams(location.search).get('n') || 8)) })
+  // モールの中: 1階の吹き抜け、2階の通路、入口の外から
+  if (scene === 'mall-in' || scene === 'mall-2f' || scene === 'mall-out') await page.evaluate(sc => { const s = ts.raw(); for (const id of [1, 2, 3, 4, 5]) { ts.place(id, 150, 150 - id); s.units[id].ai.think = 99 } window.__tsNoAuto = true
+    if (sc === 'mall-in') { ts.place(0, -40, 0, { yaw: Math.PI / 2 }); ts.look(Math.PI / 2, -0.2) }
+    if (sc === 'mall-2f') { ts.place(0, 70, -2, { yaw: 0 }); ts.look(0, 0.1) }
+    if (sc === 'mall-out') { ts.place(0, 0, -110, { yaw: 0 }); ts.look(0, 0.05) }
+    ts.run(20) }, scene)
   // 地上から大通りの高層ビルを見上げる
   if (scene === 'street') await page.evaluate(() => { window.__tsNoAuto = true; ts.place(0, 0, 40, { yaw: Math.PI }); ts.look(Math.PI, -0.25); ts.run(20) })
 }

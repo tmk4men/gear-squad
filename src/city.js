@@ -377,6 +377,16 @@ function industrial(scene, b, roofTile) {
     }
     const mat = new THREE.MeshStandardMaterial({ map: contTex, vertexColors: true, roughness: 0.6, metalness: 0.35, transparent: true })
     addMesh(mergeGeometries(geos, false), mat, b.x, 0, b.z)
+  } else if (b.car) {
+    // 車: 車体・窓まわり・タイヤ
+    const col = CONT_COLORS[b.tint] || '#7d8790'
+    const body = new THREE.MeshStandardMaterial({ color: col, roughness: 0.35, metalness: 0.5, transparent: true })
+    const glass = new THREE.MeshStandardMaterial({ color: '#1c2633', roughness: 0.1, metalness: 0.6, transparent: true })
+    const long = b.d > b.w
+    addMesh(new THREE.BoxGeometry(b.w, 0.8, b.d), body, b.x, 0.55, b.z)
+    addMesh(new THREE.BoxGeometry(long ? b.w * 0.9 : b.w * 0.55, 0.6, long ? b.d * 0.55 : b.d * 0.9), glass, b.x, 1.2, b.z)
+    const tire = new THREE.MeshStandardMaterial({ color: '#16181b', roughness: 0.9, transparent: true })
+    for (const [a, c] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) addMesh(new THREE.CylinderGeometry(0.33, 0.33, 0.25, 12).rotateZ(long ? Math.PI / 2 : 0).rotateX(long ? 0 : Math.PI / 2), tire, b.x + a * (b.w / 2 - (long ? 0.1 : 0.9)), 0.33, b.z + c * (b.d / 2 - (long ? 0.9 : 0.1)))
   } else if (b.low) {
     const mat = new THREE.MeshStandardMaterial({ color: '#a39f97', roughness: 0.95, transparent: true })
     addMesh(new THREE.BoxGeometry(b.w, b.h, b.d), mat, b.x, b.h / 2, b.z)
@@ -398,6 +408,77 @@ function industrial(scene, b, roofTile) {
     addMesh(new THREE.BoxGeometry(4, 3, 4), new THREE.MeshStandardMaterial({ color: '#d8dde2', roughness: 0.5, transparent: true }), b.x, b.h + 3.9, b.z)
   }
   return { b, id: b.id, objs, mats, fade: 1, mesh: objs[0], box: new THREE.Box3(new THREE.Vector3(b.x - b.w / 2, 0, b.z - b.d / 2), new THREE.Vector3(b.x + b.w / 2, b.h, b.z + b.d / 2)) }
+}
+
+// ================================================================ ショッピングモール
+// 外壁はガラス張り、中は白い壁とタイルの床。店先の上に看板、吹き抜けに手すり。中は日が届きにくいので床と壁を少し自発光させる
+const MALL_SIGN = ['#e5484d', '#2f6bff', '#2fbf71', '#f0a020', '#8b5cf6', '#ec4899', '#0ea5e9', '#14b8a6']
+function mallTile(kind) {
+  const c = canvas(256, 256), x = c.getContext('2d')
+  if (kind === 'ceil') {
+    x.fillStyle = '#f3f2ee'; x.fillRect(0, 0, 256, 256)
+    x.strokeStyle = 'rgba(0,0,0,.08)'; x.lineWidth = 2; for (let t = 0; t <= 256; t += 128) { x.beginPath(); x.moveTo(t, 0); x.lineTo(t, 256); x.stroke(); x.beginPath(); x.moveTo(0, t); x.lineTo(256, t); x.stroke() }
+    x.fillStyle = '#fffbe8'; x.fillRect(40, 118, 176, 20) // 照明
+  } else if (kind === 'floor') {
+    x.fillStyle = '#e8e2d6'; x.fillRect(0, 0, 256, 256)
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { x.fillStyle = (i + j) % 2 ? 'rgba(0,0,0,.035)' : 'rgba(255,255,255,.06)'; x.fillRect(i * 64, j * 64, 64, 64) }
+    x.strokeStyle = 'rgba(0,0,0,.12)'; x.lineWidth = 2; for (let t = 0; t <= 256; t += 64) { x.beginPath(); x.moveTo(t, 0); x.lineTo(t, 256); x.stroke(); x.beginPath(); x.moveTo(0, t); x.lineTo(256, t); x.stroke() }
+  } else {
+    // ガラスの外壁: 縦の方立と、階ごとの帯
+    const g = x.createLinearGradient(0, 0, 0, 256); g.addColorStop(0, '#a9c1d3'); g.addColorStop(1, '#6f8ba1')
+    x.fillStyle = g; x.fillRect(0, 0, 256, 256)
+    x.fillStyle = 'rgba(255,255,255,.18)'; x.beginPath(); x.moveTo(40, 0); x.lineTo(120, 0); x.lineTo(20, 256); x.lineTo(-60, 256); x.fill()
+    x.fillStyle = '#d7dde2'; for (let t = 0; t <= 256; t += 64) x.fillRect(t - 3, 0, 6, 256)
+    x.fillRect(0, 0, 256, 10); x.fillRect(0, 246, 256, 10)
+  }
+  const t = texFrom(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t
+}
+function buildMall(scene, G, buildings) {
+  const floorTex = mallTile('floor'), glassTex = mallTile('glass')
+  const lit = (o) => Object.assign(o, { emissiveIntensity: o.emissiveIntensity ?? 0.22 })
+  const mats = {
+    ext: new THREE.MeshStandardMaterial({ map: glassTex, roughness: 0.15, metalness: 0.55 }),
+    wall: lit(new THREE.MeshStandardMaterial({ color: '#efece6', roughness: 0.8, emissive: '#ffffff', emissiveIntensity: 0.12 })),
+    floor: lit(new THREE.MeshStandardMaterial({ map: floorTex, color: '#c9b9a0', roughness: 0.35, metalness: 0.05, emissive: '#ffffff', emissiveIntensity: 0.06 })),
+    floor2: lit(new THREE.MeshStandardMaterial({ map: floorTex, color: '#a7b6c4', roughness: 0.35, metalness: 0.05, emissive: '#ffffff', emissiveIntensity: 0.06 })),
+    floor3: lit(new THREE.MeshStandardMaterial({ map: floorTex, color: '#b9c7a9', roughness: 0.35, metalness: 0.05, emissive: '#ffffff', emissiveIntensity: 0.06 })),
+    edge: new THREE.MeshStandardMaterial({ color: '#2b3039', roughness: 0.5, metalness: 0.3 }),
+    nose: new THREE.MeshStandardMaterial({ color: '#e8b23a', roughness: 0.5 }),
+    ad: new THREE.MeshStandardMaterial({ color: '#2b3039', roughness: 0.4, emissive: '#ffffff', emissiveIntensity: 0.05 }),
+    plant: new THREE.MeshStandardMaterial({ color: '#4f7a3a', roughness: 0.8 }),
+    roof: new THREE.MeshStandardMaterial({ color: '#8f9690', roughness: 0.95 }),
+    step: new THREE.MeshStandardMaterial({ color: '#cfc9bd', roughness: 0.6, emissive: '#ffffff', emissiveIntensity: 0.08 }),
+    rail: new THREE.MeshStandardMaterial({ color: '#cfe3ee', transparent: true, opacity: 0.35, roughness: 0.1, metalness: 0.3, depthWrite: false }),
+    railTop: new THREE.MeshStandardMaterial({ color: '#9aa1a8', roughness: 0.3, metalness: 0.7 }),
+    ceil: new THREE.MeshStandardMaterial({ map: mallTile('ceil'), color: '#8f949b', roughness: 0.9, emissive: '#fff4dd', emissiveIntensity: 0.12 }),
+    counter: new THREE.MeshStandardMaterial({ color: '#b98a5c', roughness: 0.55, emissive: '#ffffff', emissiveIntensity: 0.06 }),
+  }
+  const boxUVw = (b, rep) => { const g = new THREE.BoxGeometry(b.w, b.h - (b.y0 || 0), b.d), uv = g.attributes.uv
+    for (let v = 0; v < uv.count; v++) { const f = Math.floor(v / 4), fw = f < 2 ? b.d : b.w, fh = f === 2 || f === 3 ? b.d : b.h - (b.y0 || 0); uv.setXY(v, uv.getX(v) * fw / rep, uv.getY(v) * fh / rep) } return g }
+  for (const b of SB) {
+    if (!b.kind || b.kind[0] !== 'm') continue
+    const y0 = b.y0 || 0, hh = b.h - y0
+    let mesh
+    if (b.kind === 'mwall') {
+      if (b.ad) mesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, hh, b.d), mats.ad)
+      else if (b.sign) { mesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, hh, b.d), new THREE.MeshStandardMaterial({ color: MALL_SIGN[b.shop % MALL_SIGN.length], roughness: 0.5, emissive: MALL_SIGN[b.shop % MALL_SIGN.length], emissiveIntensity: 0.35 })) }
+      else mesh = new THREE.Mesh(b.ext ? boxUVw(b, 6) : new THREE.BoxGeometry(b.w, hh, b.d), b.ext ? mats.ext : mats.wall)
+    } else if (b.kind === 'mfloor') mesh = new THREE.Mesh(boxUVw(b, 4), b.roof ? [mats.wall, mats.wall, mats.roof, mats.ceil, mats.wall, mats.wall] : [mats.edge, mats.edge, b.h < 10 ? mats.floor2 : mats.floor3, mats.ceil, mats.edge, mats.edge]) // 上面は床（階ごとに色）、下面は天井板、縁は濃い帯
+    else if (b.kind === 'mstep') { mesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, hh, b.d), mats.step); const nose = new THREE.Mesh(new THREE.BoxGeometry(b.w, 0.04, 0.12), mats.nose); nose.position.set(b.x, b.h + 0.02, b.z - Math.sign(b.z || 1) * 0); scene.add(nose) } // 段の先に色の帯
+    else if (b.kind === 'mrail') {
+      mesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, hh, b.d), b.planter ? mats.plant : b.counter ? mats.counter : mats.rail)
+      if (y0 && !b.counter) { const top = new THREE.Mesh(new THREE.BoxGeometry(b.w + 0.04, 0.06, b.d + 0.04), mats.railTop); top.position.set(b.x, b.h, b.z); scene.add(top) }
+    }
+    if (!mesh) continue
+    mesh.position.set(b.x, y0 + hh / 2, b.z)
+    mesh.castShadow = b.kind !== 'mrail'; mesh.receiveShadow = true
+    scene.add(mesh)
+    // カメラが壁や床を突き抜けないよう、当たりの箱だけ登録する（透かしはしない）
+    if (b.kind !== 'mrail') buildings.push({ b, id: b.id, objs: [mesh], mats: [], fade: 1, mesh, box: new THREE.Box3(new THREE.Vector3(b.x - b.w / 2, y0, b.z - b.d / 2), new THREE.Vector3(b.x + b.w / 2, b.h, b.z + b.d / 2)) })
+  }
+  // 1階の中の明かり（吹き抜けの真上から）
+  // 各階の天井の明かり（数を絞って、吹き抜けと東西の通路に）
+  for (const fl of [0, 6.8, 13.6]) for (const lx of [-80, 0, 80]) { const lamp = new THREE.PointLight('#fff4e0', 28, 60, 1.6); lamp.position.set(lx, fl + 5.6, 0); scene.add(lamp) }
 }
 
 // いま描いているステージの建物・道路・公園（buildCity が決める）
@@ -433,6 +514,7 @@ export function buildCity(scene, G, stageKey = 'city') {
   SB.forEach((b, i) => {
     const nestParts = b.kind ? (kindParts[b.parent] ||= []) : null
     // 狙撃場所の手すり壁と塔屋: 当たり判定のある壁。屋上の上だけ描く
+    if (b.kind && b.kind[0] === 'm' && b.kind !== 'mirror') return // モールの部品は buildMall でまとめて描く
     if (b.kind === 'ledge') {
       // ベランダの足場: コンクリートの床板と、縁の低い立ち上がり（30cm）。裏は暗く
       const t = b.h - b.y0
@@ -476,7 +558,7 @@ export function buildCity(scene, G, stageKey = 'city') {
       }
       return
     }
-    if (b.cont || b.low || b.ware || b.crane) { buildings.push(industrial(scene, b, roofTile)); return }
+    if (b.cont || b.low || b.ware || b.crane || b.car) { buildings.push(industrial(scene, b, roofTile)); return }
     const k = i % half
     const flip = i >= half
     if (!shared[k]) {
@@ -621,6 +703,7 @@ export function buildCity(scene, G, stageKey = 'city') {
   const kindMat = new THREE.MeshStandardMaterial({ vertexColors: true, map: atlas, roughness: 0.85 })
   for (const [pid, parts] of Object.entries(kindParts)) {
     const m = merged(parts, kindMat)
+    if (!m) continue
     scene.add(m)
     const bd = buildings.find(x => x.id === +pid)
     if (bd) bd.objs.push(m)
@@ -628,6 +711,7 @@ export function buildCity(scene, G, stageKey = 'city') {
   const glassParts = []
   for (const [x, y, z, w, d] of ledgeGlass) put(glassParts, box(Math.max(w, 0.02), 0.9, Math.max(d, 0.02), '#cfe3ee'), x, y, z)
   if (glassParts.length) scene.add(merged(glassParts, new THREE.MeshStandardMaterial({ vertexColors: true, map: atlas, transparent: true, opacity: 0.32, roughness: 0.1, metalness: 0.2, depthWrite: false })))
+  if (STAGE === 'mall') buildMall(scene, G, buildings)
   buildGround(scene, G)
   const perimeter = buildStreet(scene, G, atlas, r)
   buildSkyline(scene, atlas, r, G)
@@ -655,6 +739,19 @@ function buildGround(scene, G) {
   // 舗装の目地（2m ごと）
   x.strokeStyle = 'rgba(0,0,0,.07)'; x.lineWidth = 1
   for (let t = -S / 2; t < S / 2; t += 2) { x.beginPath(); x.moveTo(X(t), 0); x.lineTo(X(t), PX); x.stroke(); x.beginPath(); x.moveTo(0, Z(t)); x.lineTo(PX, Z(t)); x.stroke() }
+  // モール: 駐車場のアスファルトと白線、建物のまわりはタイルの歩道
+  if (STAGE === 'mall') {
+    const M = G.MALL
+    x.fillStyle = '#5f6267'; x.fillRect(X(-G.MAP_HALF), Z(-G.MAP_HALF), L(G.MAP_HALF * 2), L(G.MAP_HALF * 2))
+    x.globalAlpha = 0.14; x.fillStyle = grain(x); x.fillRect(0, 0, PX, PX); x.globalAlpha = 1
+    x.strokeStyle = 'rgba(240,240,235,.75)'; x.lineWidth = L(0.15)
+    for (const b of SB) if (b.car) { const long = b.d > b.w; const w = long ? 2.8 : 5.4, d = long ? 5.4 : 2.8; x.strokeRect(X(b.x - w / 2), Z(b.z - d / 2), L(w), L(d)) }
+    x.fillStyle = '#b9b3a6'; x.fillRect(X(-M.x - 8), Z(-M.z - 8), L(M.x * 2 + 16), L(M.z * 2 + 16))
+    x.fillStyle = 'rgba(0,0,0,.08)'; for (let t = -M.x - 8; t < M.x + 8; t += 2) x.fillRect(X(t), Z(-M.z - 8), 1, L(M.z * 2 + 16))
+    x.fillStyle = '#cdbfa8'; x.fillRect(X(-M.x), Z(-M.z), L(M.x * 2), L(M.z * 2)) // 1階の床（暖色）
+    x.strokeStyle = 'rgba(0,0,0,.12)'; x.lineWidth = 1; for (let t = -M.x; t < M.x; t += 4) { x.beginPath(); x.moveTo(X(t), Z(-M.z)); x.lineTo(X(t), Z(M.z)); x.stroke() } for (let t = -M.z; t < M.z; t += 4) { x.beginPath(); x.moveTo(X(-M.x), Z(t)); x.lineTo(X(M.x), Z(t)); x.stroke() }
+    x.fillStyle = '#2b3039'; x.fillRect(X(-G.MALL.hole.x - 0.6), Z(-G.MALL.hole.z - 0.6), L(G.MALL.hole.x * 2 + 1.2), L(0.6)); x.fillRect(X(-G.MALL.hole.x - 0.6), Z(G.MALL.hole.z), L(G.MALL.hole.x * 2 + 1.2), L(0.6))
+  }
   // 港: 暗いアスファルトのヤードに、黄色の区画線とコンテナ置き場の白線
   if (STAGE === 'harbor') {
     x.fillStyle = '#6a6c6f'; x.fillRect(X(-G.MAP_HALF), Z(-G.MAP_HALF), L(G.MAP_HALF * 2), L(G.MAP_HALF * 2))

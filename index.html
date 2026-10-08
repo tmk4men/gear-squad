@@ -295,6 +295,7 @@
   .am small{font-size:12px;color:var(--ink-2);font-weight:700}
   .am .spec{font-family:var(--num);font-size:11.5px;color:var(--dim);font-weight:700}
   .am[aria-pressed="true"]{background:var(--ink);color:#fff}
+  .sx .tag{font-style:normal;font-size:10px;font-weight:900;margin-left:8px;padding:1px 7px;background:rgba(15,23,34,.1);letter-spacing:.1em;vertical-align:2px} .sx[aria-pressed="true"] .tag{background:var(--signal);color:var(--ink)}
   .sx{grid-template-columns:44px 1fr} .sx-ic{grid-row:1 / 4;width:40px;height:40px;padding:7px;color:var(--c);background:rgba(15,23,34,.06);border-radius:10px;box-shadow:inset 0 0 0 1.5px var(--c)}
   .sx[aria-pressed="true"] .sx-ic{background:var(--c);color:var(--ink);box-shadow:0 0 14px var(--c)}
   .am[aria-pressed="true"] small,.am[aria-pressed="true"] .spec{color:rgba(255,255,255,.75)}
@@ -316,7 +317,7 @@
   .pips{display:flex;gap:3px}
   .pips i{width:12px;height:18px;background:rgba(15,23,34,.15);clip-path:polygon(3px 0,100% 0,calc(100% - 3px) 100%,0 100%)}
   .pips i.on{background:var(--signal)}
-  .sg-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .sg-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
   .sg{display:grid;gap:6px;padding:10px;border:0;background:rgba(15,23,34,.06);text-align:left;font-family:inherit;color:var(--ink);cursor:pointer}
   .sg-map{display:block;width:100%;height:auto;aspect-ratio:1;background:#1a2330}
   .sg b{font-size:15px;font-weight:900}
@@ -404,10 +405,10 @@
   #banner small{background:var(--glass,rgba(11,16,25,.74));color:#fff}
   #spectate b{color:var(--signal)}
   #mute{color:#fff} #mute svg *{stroke:#fff} #mute svg path[fill]{fill:#fff}
-  #wpnPop{position:absolute;left:50%;top:calc(50% + 96px);transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:6px 16px 7px 14px;opacity:0;pointer-events:none;white-space:nowrap}
+  #wpnPop{position:absolute;right:calc(20px + env(safe-area-inset-right));bottom:calc(92px + env(safe-area-inset-bottom));display:flex;align-items:center;gap:8px;padding:6px 16px 7px 14px;opacity:0;pointer-events:none;white-space:nowrap}
   #wpnPop svg{width:22px;height:22px;color:var(--signal)} #wpnPop b{font-size:14px;font-weight:900} #wpnPop kbd{font-family:var(--num);font-size:11px;color:var(--on-glass-dim)}
   #wpnPop.show{animation:wpn .9s forwards}
-  @keyframes wpn{0%{opacity:0;transform:translate(-50%,8px) scale(.92)}12%{opacity:1;transform:translate(-50%,0) scale(1.04)}22%{transform:translate(-50%,0) scale(1)}75%{opacity:1}100%{opacity:0}}
+  @keyframes wpn{0%{opacity:0;transform:translateY(8px) scale(.92)}12%{opacity:1;transform:translateY(0) scale(1.04)}22%{transform:none}75%{opacity:1}100%{opacity:0}}
   body.touch #wpnPop{top:auto;bottom:calc(250px + env(safe-area-inset-bottom))}
   #me.adverse{box-shadow:inset 0 0 0 2px #ff7a6b,0 0 24px rgba(255,122,107,.45)} #me.adverse .role{background:#ff7a6b;color:#fff}
   /* スマホのボタン: 暗いガラスの丸に白い記号。攻撃だけ黄色 */
@@ -629,10 +630,10 @@
       <div class="tab" id="tab-sense" hidden>
         <p class="hint-s">生まれつきの勘。1つだけ選び、試合中ずっと効く</p>
         <div class="am-list">
-          <button class="am sx" data-s="hawk" aria-pressed="false"><svg class="sx-ic" style="--c:#4aa8e8"><use href="#i-sense-hawk"/></svg><b>鷹の目</b><small>レーダーが50m→65m。見えない敵の音の印も長く残る</small><span class="spec">先に見つけて、有利な場所を取る</span></button>
-          <button class="am sx" data-s="rally" aria-pressed="false"><svg class="sx-ic" style="--c:#2fbf71"><use href="#i-sense-rally"/></svg><b>再起</b><small>再出撃までが8秒→5秒</small><span class="spec">前に出て撃ち合う回数が増える</span></button>
-          <button class="am sx" data-s="precise" aria-pressed="false"><svg class="sx-ic" style="--c:#e0a800"><use href="#i-sense-precise"/></svg><b>精密</b><small>どの銃・狙撃でも、頭に当たると1.3倍（ハンドガンは1.5倍にさらに上乗せ）</small><span class="spec">狙う腕がそのまま強さになる</span></button>
-          <button class="am sx" data-s="adversity" aria-pressed="false"><svg class="sx-ic" style="--c:#ec5a48"><use href="#i-sense-adversity"/></svg><b>逆境</b><small>EN が3割を切ると、攻撃+20%・足+10%</small><span class="spec">追い詰められてからの逆転</span></button>
+          <button class="am sx" data-s="hawk" aria-pressed="false"><svg class="sx-ic" style="--c:#4aa8e8"><use href="#i-sense-hawk"/></svg><b>鷹の目<em class="tag">索敵</em></b><small>レーダーが50m→65m。見えない敵の音の印も長く残る</small><span class="spec">先に見つけて、有利な場所を取る</span></button>
+          <button class="am sx" data-s="rally" aria-pressed="false"><svg class="sx-ic" style="--c:#2fbf71"><use href="#i-sense-rally"/></svg><b>再起<em class="tag">復帰</em></b><small>再出撃までが8秒→5秒</small><span class="spec">前に出て撃ち合う回数が増える</span></button>
+          <button class="am sx" data-s="precise" aria-pressed="false"><svg class="sx-ic" style="--c:#e0a800"><use href="#i-sense-precise"/></svg><b>精密<em class="tag">火力</em></b><small>どの銃・狙撃でも、頭に当たると1.3倍（ハンドガンは1.5倍にさらに上乗せ）</small><span class="spec">狙う腕がそのまま強さになる</span></button>
+          <button class="am sx" data-s="adversity" aria-pressed="false"><svg class="sx-ic" style="--c:#ec5a48"><use href="#i-sense-adversity"/></svg><b>逆境<em class="tag">逆転</em></b><small>EN が3割を切ると、攻撃+20%・足+10%</small><span class="spec">追い詰められてからの逆転</span></button>
           <button class="am sx" data-s="" aria-pressed="false"><svg class="sx-ic" style="--c:#8e98a6"><use href="#i-none"/></svg><b>なし</b><small>第六感を使わない</small><span class="spec"></span></button>
         </div>
       </div>
@@ -656,6 +657,7 @@
       <div class="sg-list">
         <button class="sg" data-s="city" aria-pressed="false"><canvas class="sg-map" width="240" height="240"></canvas><b>市街地</b><small>高層ビルと細い路地。ベランダを伝って高所へ</small></button>
         <button class="sg" data-s="harbor" aria-pressed="false"><canvas class="sg-map" width="240" height="240"></canvas><b>港湾倉庫街</b><small>積み上げたコンテナの高台と、見通しの良い岸壁</small></button>
+        <button class="sg" data-s="mall" aria-pressed="false"><canvas class="sg-map" width="240" height="240"></canvas><b>ショッピングモール</b><small>3階建ての中で戦う。吹き抜けと店の陰、外は駐車場</small></button>
       </div>
       <h3 class="sh-h3">天候</h3>
       <div class="tp-wx" role="group" aria-label="天候"><button class="wx" data-w="clear" aria-pressed="false">晴れ</button><button class="wx" data-w="storm" aria-pressed="false">暴風雨</button><button class="wx" data-w="snow" aria-pressed="false">雪</button></div>
@@ -691,6 +693,6 @@
 </div>
 
 <div id="bootErr" hidden></div>
-<script type="module" src="./src/main.js"></script>
+<script type="module" src="./src/main.js?v=202610080558"></script>
 </body>
 </html>
