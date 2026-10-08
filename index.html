@@ -194,7 +194,7 @@
   #tPad{right:calc(116px + env(safe-area-inset-right));bottom:calc(100px + env(safe-area-inset-bottom));width:56px;height:56px}
   #tSup3{right:calc(150px + env(safe-area-inset-right));bottom:calc(166px + env(safe-area-inset-bottom));width:46px;height:46px}
   #tSup3.on{background:var(--ink);color:#fff}
-  #tShoot .swap{position:absolute;right:-2px;top:-4px;font-size:12px;background:var(--signal);color:var(--ink);border-radius:10px;padding:0 5px;line-height:18px}
+  #tShoot .swap{position:absolute;right:6px;top:6px;font-size:10px;font-weight:900;background:var(--signal);color:var(--ink);border-radius:9px;padding:0 4px;line-height:16px}
   #tJump{right:calc(196px + env(safe-area-inset-right));bottom:calc(22px + env(safe-area-inset-bottom));width:52px;height:52px}
   /* 枠は clip-path / overflow で切られるので、内側の空いている隅に置く */
   .left{position:absolute;right:20px;bottom:10px;min-width:18px;height:18px;padding:0 4px;background:var(--blue);color:#fff;font-family:var(--num);font-size:12px;font-weight:800;line-height:18px;text-align:center}
@@ -376,6 +376,38 @@
   #bootErr{position:absolute;left:12px;right:12px;bottom:12px;background:#fff;border:2px solid #c4182b;border-radius:8px;
     padding:10px;font:12px/1.5 monospace;color:#c4182b;white-space:pre-wrap;z-index:9;pointer-events:auto}
   @media (prefers-reduced-motion:reduce){ #banner.show,.feed,.dmg{animation-duration:.01s} }
+  /* ---------- 試合中の UI: 作戦端末のような濃いガラスの板・白い文字・黄の差し色 ----------
+     明るい街並みの上でも文字が沈まないように、板は暗く、文字は白。目立たせるのは「いま持っている武器」だけ */
+  #hud{--glass:rgba(11,16,25,.74);--glass-hi:rgba(11,16,25,.86);--on-glass:#fff;--on-glass-dim:rgba(255,255,255,.62)}
+  #hud .plate,#mute{background:var(--glass);color:var(--on-glass);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
+  #me .lbl{color:var(--on-glass-dim)}
+  #me .val{color:var(--on-glass)}
+  #me .role{background:var(--signal);color:var(--ink)}
+  #enBar{background:rgba(255,255,255,.14)!important}
+  #enBar::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 1px),rgba(11,16,25,.55) calc(10% - 1px) 10%);pointer-events:none}
+  #leak{color:#ff8a82}
+  .trig svg,.trig .nm{color:var(--on-glass)}
+  .trig kbd{color:var(--on-glass-dim)}
+  .trig .cd{background:rgba(0,0,0,.5)}
+  .trig{transition:transform .15s,background .15s}
+  .trig.active{background:var(--glass-hi);box-shadow:inset 0 -3px 0 var(--signal);transform:translateY(-6px)}
+  .trig.active svg,.trig.active .nm{color:var(--signal)}
+  .trig.on{background:var(--signal)} .trig.on svg,.trig.on .nm{color:var(--ink)} .trig.on kbd{color:var(--ink-2)}
+  #call b{background:var(--signal);color:var(--ink)}
+  .feed .t0{color:var(--blue-soft)} .feed .t1{color:var(--red-soft)} .feed .by{color:var(--on-glass-dim)}
+  #lockState{color:var(--on-glass-dim)} #lockState b{background:#fff;color:var(--ink)} #lockState b.off{background:#5b6470;color:#fff} #lockState kbd{color:var(--on-glass-dim)}
+  #banner small{background:var(--glass,rgba(11,16,25,.74));color:#fff}
+  #spectate b{color:var(--signal)}
+  #mute{color:#fff} #mute svg *{stroke:#fff} #mute svg path[fill]{fill:#fff}
+  /* スマホのボタン: 暗いガラスの丸に白い記号。攻撃だけ黄色 */
+  .tb{background:rgba(11,16,25,.62);color:#fff;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.22),0 4px 14px rgba(0,0,0,.25)}
+  #tBlade{background:var(--signal)!important;color:var(--ink)!important;box-shadow:0 0 0 4px rgba(255,197,49,.25),0 6px 18px rgba(0,0,0,.3)}
+  #tLock.on{background:#fff;color:var(--ink)}
+  #tBag.on,#tSup3.on,#tPad.on{background:var(--signal);color:var(--ink)}
+  #knob{background:rgba(255,255,255,.9)}
+  #stick{background:rgba(11,16,25,.35)!important;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.25)}
+  @media (prefers-reduced-motion:reduce){ *{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important} }
+
 </style>
 <script>
 // 起動失敗の保険。module の読み込み自体が落ちても原因を画面に出す
