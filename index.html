@@ -295,6 +295,8 @@
   .am small{font-size:12px;color:var(--ink-2);font-weight:700}
   .am .spec{font-family:var(--num);font-size:11.5px;color:var(--dim);font-weight:700}
   .am[aria-pressed="true"]{background:var(--ink);color:#fff}
+  .sx{grid-template-columns:44px 1fr} .sx-ic{grid-row:1 / 4;width:40px;height:40px;padding:7px;color:var(--c);background:rgba(15,23,34,.06);border-radius:10px;box-shadow:inset 0 0 0 1.5px var(--c)}
+  .sx[aria-pressed="true"] .sx-ic{background:var(--c);color:var(--ink);box-shadow:0 0 14px var(--c)}
   .am[aria-pressed="true"] small,.am[aria-pressed="true"] .spec{color:rgba(255,255,255,.75)}
   .st-list{display:grid;gap:10px}
   .lv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:center;margin-bottom:12px;padding:12px 14px;background:var(--ink);color:#fff}
@@ -417,6 +419,28 @@
   #stick{background:rgba(11,16,25,.35)!important;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.25)}
   @media (prefers-reduced-motion:reduce){ *{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important} }
 
+  /* 横向きを促す（スマホを縦に持っているとき） */
+  #rotate{position:fixed;inset:0;z-index:50;display:grid;place-content:center;justify-items:center;gap:10px;background:rgba(11,16,25,.94);color:#fff;text-align:center;pointer-events:auto}
+  #rotate[hidden]{display:none}
+  #rotate svg{width:72px;height:72px;color:var(--signal);animation:tilt 1.8s ease-in-out infinite}
+  #rotate b{font-size:18px;font-weight:900} #rotate small{font-size:12.5px;color:rgba(255,255,255,.7)}
+  @keyframes tilt{0%,30%{transform:rotate(0)}60%,100%{transform:rotate(-90deg)}}
+  /* スマホ横画面: 高さが低いので上の段を小さくまとめ、下の操作ボタンとかぶらないようにする */
+  @media (orientation:landscape) and (max-height:520px){
+    body.touch #radar{top:calc(8px + env(safe-area-inset-top));left:calc(8px + env(safe-area-inset-left));width:96px;height:96px}
+    body.touch #me{top:calc(8px + env(safe-area-inset-top));left:calc(112px + env(safe-area-inset-left));bottom:auto;width:176px;padding:5px 14px 6px 12px}
+    body.touch #me .val{font-size:20px} body.touch #me .lbl{font-size:9.5px} body.touch #me .role{display:none} body.touch #leak{font-size:9.5px;min-height:0}
+    body.touch #board{top:calc(4px + env(safe-area-inset-top));transform:translateX(-50%) scale(.8);transform-origin:top center}
+    body.touch #feed{top:calc(54px + env(safe-area-inset-top));right:calc(10px + env(safe-area-inset-right))} body.touch .feed{font-size:10.5px;padding:3px 12px}
+    body.touch #call{top:calc(50px + env(safe-area-inset-top));left:50%;right:auto;transform:translateX(-50%);max-width:42vw;font-size:11px;text-align:center}
+    body.touch #snipeWarn{top:calc(84px + env(safe-area-inset-top));left:50%;right:auto;transform:translateX(-50%)}
+    body.touch #wpnPop{top:calc(50% + 64px);bottom:auto}
+    body.touch #hint{top:calc(50% + 56px);bottom:auto}
+    body.touch #lockState{top:calc(50% + 46px)}
+    #reticle{transform:scale(.75)}
+    #banner{top:16%}
+  }
+
 </style>
 <script>
 // 起動失敗の保険。module の読み込み自体が落ちても原因を画面に出す
@@ -467,6 +491,11 @@
     <symbol id="i-rifle" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M2 10h14l2-1.5h4V12H12l-1 2H8l-1 3H4.5l1-5H2z"/><path d="M12 12l1 4h2"/></g></symbol>
     <symbol id="i-shotgun" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M2 9.5h20V12H2zM2 12h7l-2 6H4z"/><path d="M12 12v2.5h5V12"/></g></symbol>
     <symbol id="i-launcher" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="8" width="13" height="6" rx="1"/><path d="M16 9h4v4h-4M7 14l-1 5h3l1-5"/><circle cx="20.5" cy="5" r="1.5"/></g></symbol>
+    <symbol id="i-sense-hawk" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 9c3-3.2 6.2-4.6 9.5-4.6S18.5 5.8 21.5 9"/><path d="M4 12.5c2.3 2.6 5 4 8 4s5.7-1.4 8-4c-2.3-2.6-5-4-8-4s-5.7 1.4-8 4z"/><circle cx="12" cy="12.5" r="2.4"/><circle cx="12" cy="12.5" r=".6" fill="currentColor"/><path d="M19.5 4.5l2 -1.5M4.5 4.5l-2-1.5"/></g></symbol>
+    <symbol id="i-sense-rally" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 13a7.5 7.5 0 1 1-2.2-6.3"/><path d="M17.8 2.8v4.4h-4.4"/><path d="M12 16V9.5M9.3 12.2L12 9.5l2.7 2.7"/></g></symbol>
+    <symbol id="i-sense-precise" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="3.2"/><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4"/><circle cx="12" cy="12" r=".9" fill="currentColor"/></g></symbol>
+    <symbol id="i-sense-adversity" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 19.5h5l2-3"/><path d="M12.5 21c-3 0-4.8-2.2-4.8-4.6 0-2.9 2.6-4.3 3.4-7.6 2.4 1.6 2.5 3.6 2.2 5 1-.6 1.7-1.8 1.8-3.1 2 1.5 3.2 3.4 3.2 5.6 0 2.7-2.4 4.7-5.8 4.7z"/><path d="M12.6 18.6c-.9 0-1.6-.6-1.6-1.6 0-1 .9-1.6 1.2-2.6.9.7 1.9 1.4 1.9 2.4s-.6 1.8-1.5 1.8z"/></g></symbol>
+    <symbol id="i-none" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M6.5 17.5l11-11"/></g></symbol>
     <symbol id="i-aim" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></g></symbol>
     <symbol id="i-mouse" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v4" stroke-linecap="round"/></g></symbol>
   </defs>
@@ -500,6 +529,7 @@
   </div>
   <div id="feed"></div>
   <div id="call" class="plate"></div>
+  <div id="rotate" hidden><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="15" y="6" width="18" height="30" rx="3" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M8 34a17 17 0 0 0 26 8" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M33 37l1.5 5-5 .5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg><b>スマホを横にして遊ぶ</b><small>横画面に合わせて操作ボタンが並んでいる</small></div>
   <div id="wpnPop" class="plate" aria-live="polite"></div>
   <div id="me" class="plate">
     <div class="top"><span class="lbl">ENERGY</span><span class="role" id="meRole">アタッカー</span><span class="val" id="enNum">100</span></div>
@@ -593,17 +623,17 @@
           <button class="am" data-a="homing" aria-pressed="false"><i class="dot" style="--c:#5ef0ff"></i><b>追尾弾</b><small>狙った相手へ曲がる。動く相手・遠い相手に</small><span class="spec">威力 75% ・ 弾速 60%</span></button>
           <button class="am" data-a="blast" aria-pressed="false"><i class="dot" style="--c:#ff9a3c"></i><b>炸裂弾</b><small>当たった所で弾ける。物陰の相手と建物に強い</small><span class="spec">威力 80% ・ 爆風 1.8m ・ 建物 ×2.5</span></button>
           <button class="am" data-a="curve" aria-pressed="false"><i class="dot" style="--c:#c58bff"></i><b>曲射弾</b><small>横へふくらんでから狙いへ。正面の遮蔽物を回り込む</small><span class="spec">威力 85% ・ 弾速 85%</span></button>
-          <button class="am" data-a="weight" aria-pressed="false"><i class="dot" style="--c:#8f9bb0"></i><b>重り弾</b><small>ほとんど削れないが、当たった数だけ重りが付き、足もジャンプも落ちる</small><span class="spec">威力 25% ・ 1発で6%重く（最大75%）・ 1分続く</span></button>
+          <button class="am" data-a="weight" aria-pressed="false"><i class="dot" style="--c:#8f9bb0"></i><b>重り弾</b><small>ほとんど削れないが、当たった数だけ重りが付き、足もジャンプも落ちる</small><span class="spec">威力 25% ・ 1発で3%重く（最大45%）・ 1分続く</span></button>
         </div>
       </div>
       <div class="tab" id="tab-sense" hidden>
         <p class="hint-s">生まれつきの勘。1つだけ選び、試合中ずっと効く</p>
         <div class="am-list">
-          <button class="am sx" data-s="hawk" aria-pressed="false"><i class="dot" style="--c:#7fd0ff"></i><b>鷹の目</b><small>レーダーが50m→65m。見えない敵の音の印も長く残る</small><span class="spec">先に見つけて、有利な場所を取る</span></button>
-          <button class="am sx" data-s="rally" aria-pressed="false"><i class="dot" style="--c:#7dffb0"></i><b>再起</b><small>再出撃までが8秒→5秒</small><span class="spec">前に出て撃ち合う回数が増える</span></button>
-          <button class="am sx" data-s="precise" aria-pressed="false"><i class="dot" style="--c:#ffd75e"></i><b>精密</b><small>どの銃・狙撃でも、頭に当たると1.3倍（ハンドガンは1.5倍にさらに上乗せ）</small><span class="spec">狙う腕がそのまま強さになる</span></button>
-          <button class="am sx" data-s="adversity" aria-pressed="false"><i class="dot" style="--c:#ff7a6b"></i><b>逆境</b><small>EN が3割を切ると、攻撃+20%・足+10%</small><span class="spec">追い詰められてからの逆転</span></button>
-          <button class="am sx" data-s="" aria-pressed="false"><i class="dot" style="--c:#8e98a6"></i><b>なし</b><small>第六感を使わない</small><span class="spec"></span></button>
+          <button class="am sx" data-s="hawk" aria-pressed="false"><svg class="sx-ic" style="--c:#4aa8e8"><use href="#i-sense-hawk"/></svg><b>鷹の目</b><small>レーダーが50m→65m。見えない敵の音の印も長く残る</small><span class="spec">先に見つけて、有利な場所を取る</span></button>
+          <button class="am sx" data-s="rally" aria-pressed="false"><svg class="sx-ic" style="--c:#2fbf71"><use href="#i-sense-rally"/></svg><b>再起</b><small>再出撃までが8秒→5秒</small><span class="spec">前に出て撃ち合う回数が増える</span></button>
+          <button class="am sx" data-s="precise" aria-pressed="false"><svg class="sx-ic" style="--c:#e0a800"><use href="#i-sense-precise"/></svg><b>精密</b><small>どの銃・狙撃でも、頭に当たると1.3倍（ハンドガンは1.5倍にさらに上乗せ）</small><span class="spec">狙う腕がそのまま強さになる</span></button>
+          <button class="am sx" data-s="adversity" aria-pressed="false"><svg class="sx-ic" style="--c:#ec5a48"><use href="#i-sense-adversity"/></svg><b>逆境</b><small>EN が3割を切ると、攻撃+20%・足+10%</small><span class="spec">追い詰められてからの逆転</span></button>
+          <button class="am sx" data-s="" aria-pressed="false"><svg class="sx-ic" style="--c:#8e98a6"><use href="#i-none"/></svg><b>なし</b><small>第六感を使わない</small><span class="spec"></span></button>
         </div>
       </div>
       <div class="tab" id="tab-look" hidden>

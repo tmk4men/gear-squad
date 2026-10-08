@@ -52,6 +52,7 @@ const PAD_AIR_PUSH = 14
 export const PAD_CD = 0.22
 const PAD_COST = 0.5
 export const WEIGHT_T = 60 // 重り弾の重りが付いている秒数（当たるたびに60秒に戻る）
+export const WEIGHT_MAX = 0.45 // 重りで遅くなる上限
 export const PAD_MAX = 2
 // ブレード
 // シューター: 立方体を出し、分裂させて撃つ
@@ -318,7 +319,7 @@ export const AMMO = {
   homing: { dmg: 0.75, v: 0.6, turn: 6 },      // 追尾弾: 狙った相手へ曲がる。動く相手・遠い相手に
   blast: { dmg: 0.8, v: 0.75, blast: 1.8 },    // 炸裂弾: 当たった所で弾ける。物陰の相手と建物に強い
   curve: { dmg: 0.85, v: 0.85, curve: 0.55 },  // 曲射弾: 横へふくらんでから狙った点へ。正面の遮蔽物を回り込む
-  weight: { dmg: 0.25, v: 0.9, slow: 0.06 },   // 重り弾: ほとんど削れない代わりに、当たった数だけ重りが付く（1発6%、最大75%。走る速さもジャンプも下がる。1分続く）
+  weight: { dmg: 0.25, v: 0.9, slow: 0.03 },   // 重り弾: ほとんど削れない代わりに、当たった数だけ重りが付く（1発3%、最大45%。走る速さとジャンプが下がる。1分続く）
 }
 export const AMMO_TYPES = Object.keys(AMMO)
 // 狙撃: ロングショットは標準、ラピッドショットは速いが軽い、ヘビーショットは遅いが重い
@@ -735,7 +736,7 @@ function usePad(st, u, mx, mz) {
   const m = Math.hypot(mx, mz)
   const dx = m > 0.1 ? mx / m : Math.sin(u.yaw), dz = m > 0.1 ? mz / m : Math.cos(u.yaw)
   st.pads.push({ x: u.x, y: u.y, z: u.z, yaw: Math.atan2(dx, dz), t: 0, team: u.team })
-  u.vy = (air ? PAD_AIR_V : PAD_V) * (1 - (u.slow || 0) * 0.6) // 重りが付いているとエアステップも低い
+  u.vy = (air ? PAD_AIR_V : PAD_V) * (1 - (u.slow || 0) * 0.5) // 重りが付いているとエアステップも低い
   const push = air ? PAD_AIR_PUSH : PAD_PUSH
   u.vx = dx * push; u.vz = dz * push
   u.grounded = false
@@ -853,7 +854,7 @@ function stepUnit(st, u, input) {
 
   // ジャンプ・エアステップ
   if (!stunned && input.jump && u.grounded && !slashing) {
-    u.vy = JUMP_V * statJmp(u.stats.jmp) * (1 - (u.slow || 0)); u.grounded = false // 重りの分だけジャンプも低い
+    u.vy = JUMP_V * statJmp(u.stats.jmp) * (1 - (u.slow || 0) * 0.8); u.grounded = false // 重りの分だけジャンプも低い
     st.events.push({ type: 'jump', id: u.id })
   }
   if (!stunned && input.pad && u.trig.includes('pad') && u.padCd <= 0 && u.en > PAD_COST + 1 && u.padAir < PAD_MAX) usePad(st, u, mx, mz)
@@ -1288,7 +1289,7 @@ function stepBullets(st) {
         const owner = st.units[b.owner], precise = owner && owner.sense === 'precise'
         const headHit = (b.head > 1 || precise) && b.y > u.y + 1.45 // 頭（首から上）に当たった
         if (!b.blast && damage(st, u, b.dmg * (headHit ? (b.head || 1) * (precise ? PRECISE_HEAD : 1) : 1), BULLET_LEAK, st.units[b.owner], headHit ? 'head' : 'bullet', b.vx / v, b.vz / v)) {
-          if (b.slow) { u.weights = (u.slowT > 0 ? u.weights || 0 : 0) + 1; u.slow = Math.min(0.75, u.weights * b.slow); u.slowT = WEIGHT_T }
+          if (b.slow) { u.weights = (u.slowT > 0 ? u.weights || 0 : 0) + 1; u.slow = Math.min(WEIGHT_MAX, u.weights * b.slow); u.slowT = WEIGHT_T }
           if (b.kb) { u.vx += b.vx / v * b.kb; u.vz += b.vz / v * b.kb; u.kbHits = (u.kbT > 0 ? u.kbHits || 0 : 0) + 1; u.kbT = 0.12; if (u.kbHits >= 5) u.stun = Math.max(u.stun, 0.25) } // 散弾が多く当たるとよろめく
         }
         else if (u.id !== b.owner) damage(st, u, b.dmg * 0.4, BULLET_LEAK, st.units[b.owner], 'bullet', b.vx / v, b.vz / v) // 直撃の分（残りは爆風）

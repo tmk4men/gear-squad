@@ -1830,8 +1830,21 @@ function setupTitle() {
   v0.overlayW = 1
 }
 
+// スマホ: 試合中に縦持ちなら横にするよう促す。Android は全画面にして横向きに固定する（iPhone のブラウザは固定できない）
+const portraitQ = matchMedia('(orientation: portrait)')
+function updateRotate() { $('rotate').hidden = !(isTouch && portraitQ.matches && mode === 'play') }
+portraitQ.addEventListener ? portraitQ.addEventListener('change', updateRotate) : portraitQ.addListener(updateRotate)
+function lockLandscape() {
+  if (!isTouch) return
+  try {
+    const el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen
+    const lock = () => { try { const p = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (p && p.catch) p.catch(() => {}) } catch {} }
+    if (req && !document.fullscreenElement) { const p = req.call(el); if (p && p.then) p.then(lock).catch(() => {}); else lock() } else lock()
+  } catch {}
+}
 function startGame() {
   ensureAudio()
+  lockLandscape()
   if (mode === 'play') return
   clearUnits()
   for (const m of padMeshes) scene.remove(m)
@@ -1860,6 +1873,7 @@ function startGame() {
   $('dock').hidden = false
   $('me').hidden = false
   $('touch').hidden = !isTouch
+  setTimeout(updateRotate, 0)
   const me = state.units.find(u => u.player)
   camYaw = me.yaw
   camPitch = 0.16
@@ -2022,6 +2036,7 @@ function handleEvents(events) {
 
 function showResult() {
   mode = 'result'
+  updateRotate()
   const st = state
   const head = $('resHead')
   $('resTitle').textContent = st.winner === -1 ? '引き分け' : st.winner === 0 ? '勝利' : '敗北'
@@ -2236,7 +2251,7 @@ function showWeapon() {
 }
 function updateSummary() {
   const gun = myTrig.find(t => G.TRIGGER_CLASS[t] === 'gun')
-  $('miLoadout').innerHTML = myTrig.map(t => `<svg class="mini" aria-label="${TRIG_INFO[t].name}"><use href="#${TRIG_INFO[t].icon}"/></svg>`).join('') + (gun ? `<em>${AMMO_NAME[myAmmo]}</em>` : '') + (mySense ? `<em>${SENSE_INFO[mySense][0]}</em>` : '')
+  $('miLoadout').innerHTML = myTrig.map(t => `<svg class="mini" aria-label="${TRIG_INFO[t].name}"><use href="#${TRIG_INFO[t].icon}"/></svg>`).join('') + (gun ? `<em>${AMMO_NAME[myAmmo]}</em>` : '') + (mySense ? `<svg class="mini" aria-label="${SENSE_INFO[mySense][0]}"><use href="#i-sense-${mySense}"/></svg><em>${SENSE_INFO[mySense][0]}</em>` : '')
   $('miStage').textContent = `${G.STAGES[stageKey].name}・${WEATHER[weather].name}`
   $('startSub').textContent = `${G.STAGES[stageKey].name} ・ ${WEATHER[weather].name}`
   for (const b of document.querySelectorAll('.am:not(.sx)')) b.setAttribute('aria-pressed', String(b.dataset.a === myAmmo))

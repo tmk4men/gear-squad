@@ -624,7 +624,7 @@ const gunDuel = (seed, gun, ammo, ex, ez) => {
   for (let i = 0; i < 40; i++) G.step(st, { shoot: i < 30 })
   const slowed = e.slow
   const runDist = () => { const x0 = e.z; for (let i = 0; i < 30; i++) { e.vx = 0; G.step(st, {}) } return x0 }
-  ok(slowed >= 0.18 && e.weights >= 3 && Math.abs(slowed - Math.min(0.75, e.weights * 0.06)) < 1e-9, '重り弾は当たった数だけ重くなる', `重り${e.weights}個 重さ=${slowed.toFixed(2)}`)
+  ok(slowed >= 0.09 && e.weights >= 3 && Math.abs(slowed - Math.min(G.WEIGHT_MAX, e.weights * G.AMMO.weight.slow)) < 1e-9, '重り弾は当たった数だけ重くなる', `重り${e.weights}個 重さ=${slowed.toFixed(2)}`)
   ok(e.slowT > 50, '効き目は1分続く', e.slowT.toFixed(1))
   for (let i = 0; i < 61 * 60; i++) G.step(st, {})
   ok(e.slow === 0 && e.weights === 0, '1分たつと重りが外れる', `${e.slow} ${e.weights}`)
@@ -665,9 +665,9 @@ const gunDuel = (seed, gun, ammo, ex, ez) => {
 }
 { // 重りが付くとジャンプも低くなる
   const top = w => { const st = G.createState(93, { spawn: 'fixed' }); st.units.forEach(u => { if (u.id) { u.alive = false; u.outT = -1 } }); const me = st.units[0]; put(me, 34, 0)
-    me.weights = w; me.slow = Math.min(0.75, w * 0.06); me.slowT = 60; G.step(st, { jump: true }); let t = 0; for (let i = 0; i < 90; i++) { G.step(st, {}); t = Math.max(t, me.y) } return t }
-  const a = top(0), b = top(8)
-  ok(b < a * 0.6, '重り8個でジャンプが大きく下がる', `重りなし=${a.toFixed(2)}m 8個=${b.toFixed(2)}m`)
+    me.weights = w; me.slow = Math.min(G.WEIGHT_MAX, w * G.AMMO.weight.slow); me.slowT = 60; G.step(st, { jump: true }); let t = 0; for (let i = 0; i < 90; i++) { G.step(st, {}); t = Math.max(t, me.y) } return t }
+  const a = top(0), b = top(15)
+  ok(b < a * 0.75 && b > a * 0.3, '重り15個（上限）でジャンプが下がるが、跳べなくはならない', `重りなし=${a.toFixed(2)}m 15個=${b.toFixed(2)}m`)
 }
 { // レベルで増えた点: 合計15点まで振れる。それを超える振り方は標準に戻す
   ok(G.validStats({ spd: 5, en: 4, atk: 3, jmp: 3 }, 3).spd === 5, 'レベルの点（+3）があれば合計15点まで振れる')
