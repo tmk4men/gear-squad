@@ -59,7 +59,7 @@ export const SIGHT = 70
 // ダッシュ: 押した向きへ短く飛び出す。入力が無ければ後ろへ下がる。逃げるための手段なので待ち時間は長め
 const DASH_V = 20
 export const DASH_T = 0.25
-export const DASH_CD = 3
+export const DASH_CD = 1 // ダッシュの待ち時間（秒）
 // 狙撃: 押している間ためて、離して撃つ。弾は一瞬で届く光線。ためるほど強い。
 // 狙いは相手の0.15秒前の位置に付くので、走り回る相手には外れ、止まった相手や着地の瞬間に当たる
 export const SNIPE_RANGE = 160 // 狙撃の届く距離（マップの半分）

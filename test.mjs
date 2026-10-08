@@ -122,7 +122,9 @@ const hold = (st, n, inp = {}) => { for (let i = 0; i < n; i++) G.step(st, { ...
   ok(d1 > d0 + 2.5, 'ダッシュは歩くより大きく進む', `ダッシュ=${d1.toFixed(1)}m 走り=${d0.toFixed(1)}m`)
   const cd = me.dashCd
   const x0 = me.x; run(st, 1, { dash: true, mx: 1 }); run(st, 14, { mx: 1 })
-  ok(cd > 2 && me.x - x0 < d0 + 0.5, '待ち時間中はもう一度ダッシュできない', `待ち=${cd.toFixed(2)} 次の15ステップ=${(me.x - x0).toFixed(1)}m`)
+  ok(cd > 0 && cd <= G.DASH_CD && me.x - x0 < d0 + 0.5, '待ち時間中はもう一度ダッシュできない', `待ち=${cd.toFixed(2)} 次の15ステップ=${(me.x - x0).toFixed(1)}m`)
+  run(st, Math.ceil(G.DASH_CD * 60) + 2, {}); const x1 = me.x; run(st, 1, { dash: true, mx: 1 }); run(st, 14, { mx: 1 })
+  ok(me.x - x1 > d0 + 1, `${G.DASH_CD}秒たてばまたダッシュできる（止まった所から）`, `${(me.x - x1).toFixed(1)}m`)
   run(st, 200)
   put(me, -20, 20, { yaw: 0 }) // 向き +Z
   run(st, 1, { dash: true }); run(st, 14)
