@@ -78,6 +78,9 @@ const LOCK_RANGE = 110
 const LEAK_MAX = 1.2 // 漏れは傷が増えても毎秒1.2まで
 // 傷ごとに漏れが続く時間。受けたダメージに比例する（ブレード14で約5秒、狙撃30で約10秒、スプリッター1発で約0.5秒）
 export const LEAK_SEC_PER_DMG = 0.21
+// ENが尽きかけたら、漏れていない間だけ10までゆっくり戻る（1→10で約9秒）。マント・ミラージュ中は戻らない
+export const LOW_REGEN_CAP = 10
+export const LOW_REGEN_RATE = 1
 
 // 再現できる乱数
 function rng(seed) {
@@ -1095,6 +1098,7 @@ function stepUnit(st, u, input) {
     u.en -= u.leak * dt
     if (u.en <= 0) bailout(st, u)
   }
+  else if (u.alive && u.en < LOW_REGEN_CAP && !u.bag && !u.cham) u.en = Math.min(LOW_REGEN_CAP, u.en + LOW_REGEN_RATE * dt)
 }
 
 // ---------------------------------------------------------------- CPU

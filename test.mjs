@@ -758,5 +758,20 @@ const mallSt = seed => { const st = G.createState(seed, { spawn: 'fixed', stage:
     while (st.phase === 'play' && s < 60 * 180) { G.step(st, {}); s++; for (const e of G.drainEvents(st)) if (e.type === 'bailout') kills++; if (s % 60 === 0) for (const u of st.units) if (![u.x, u.y, u.z].every(Number.isFinite)) nan++ } }
   ok(kills / 4 > 3 && nan === 0, 'モールでも3分で撃破が起きる', `1試合あたり${(kills / 4).toFixed(1)}`)
 }
+{ // ENが10未満まで減ったら、漏れていない間だけ10までゆっくり戻る
+  const st = mk(120); killAllBut(st, [0, 3])
+  const u = st.units[3]; put(u, 0, 0); u.ai.think = 99; u.ai.targetId = -1; u.trig = u.trig.filter(t => t !== 'bag' && t !== 'chameleon'); u.bag = u.cham = false
+  u.en = 1; run(st, 60 * 4.5); const half = u.en
+  run(st, 60 * 5); const full = u.en
+  run(st, 60 * 10)
+  ok(half > 4.5 && half < 6.5 && full === G.LOW_REGEN_CAP && u.en === G.LOW_REGEN_CAP, 'EN1から約9秒で10まで戻り、10で止まる', `4.5秒後=${half.toFixed(2)} 9.5秒後=${full} 19.5秒後=${u.en}`)
+  u.en = 40; run(st, 60 * 5)
+  ok(u.en === 40, '10以上なら回復しない', `en=${u.en}`)
+  u.en = 5; u.wounds.push({ rate: 0.3, t: 3 }); u.leak = 0.3; run(st, 60 * 2)
+  ok(u.en < 5, '漏れている間は回復しない', `en=${u.en.toFixed(2)}`)
+  const w = st.units[0]; put(w, 30, 30); w.ai.think = 99; w.trig = [...w.trig, 'bag']; w.en = 5
+  for (let i = 0; i < 120; i++) G.step(st, { bagSet: true })
+  ok(w.en < 5, 'マントを着ている間は回復しない', `en=${w.en.toFixed(2)}`)
+}
 console.log(`\n${pass} OK / ${fail} FAIL`)
 process.exit(fail ? 1 : 0)
