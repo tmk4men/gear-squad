@@ -2,10 +2,10 @@
 // 時間で進むものは全部固定60Hzステップの中で進める（draw では状態を描くだけ）。
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { buildCity } from './city.js?v=202610250922'
+import { buildCity } from './city.js?v=202610301646'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import * as G from './game.js?v=202610250922'
+import * as G from './game.js?v=202610301646'
 
 const $ = id => document.getElementById(id)
 const clamp01 = v => Math.max(0, Math.min(1, v))
@@ -249,7 +249,7 @@ const RUN_NATURAL = 2.51 * BODY_K
 const OVERLAYS = ['Jump', 'Punch', 'Death', 'Dance', 'ThumbsUp', 'Wave', 'Yes', 'No']
 
 async function loadRobot() {
-  robotGltf = await new GLTFLoader().loadAsync('./models/RobotExpressive.glb?v=202610250922')
+  robotGltf = await new GLTFLoader().loadAsync('./models/RobotExpressive.glb?v=202610301646')
 }
 
 // 見た目（自機だけ）: ヘルメットの形・戦闘服の色・バイザーの光。装甲の色は隊の見分けなので変えない
