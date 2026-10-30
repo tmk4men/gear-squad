@@ -654,7 +654,7 @@ function segHitsBox(ax, ay, az, bx, by, bz, b) {
   return true
 }
 // 半直線と箱が最初に交わる距離。交わらなければ Infinity
-function rayBox(ox, oy, oz, dx, dy, dz, b) {
+export function rayBox(ox, oy, oz, dx, dy, dz, b) {
   const o = [ox, oy, oz], d = [dx, dy, dz]
   const mn = [b.x - b.w / 2, b.y0 || -1, b.z - b.d / 2], mx = [b.x + b.w / 2, b.h, b.z + b.d / 2]
   let t0 = 0, t1 = Infinity
@@ -842,11 +842,25 @@ function snipe(st, u, target) {
   const charge = Math.min(1, u.snipeT / sp.charge)
   u.snipeCd = cdOf(st, u, sp.cd)
   u.en -= Math.min(sp.cost, u.en - 1)
-  const ox = u.x + Math.sin(u.yaw) * 0.5, oy = u.y + 1.55, oz = u.z + Math.cos(u.yaw) * 0.5
+  const cx = u.x + Math.sin(u.yaw) * 0.5, cy0 = u.y + 1.55, cz = u.z + Math.cos(u.yaw) * 0.5
+  let ox = cx, oy = cy0, oz = cz
   let dx, dy, dz
   if (u.aimPoint && u.player && !st.autoplay) {
     // 人が撃つ狙撃は、狙いの固定に関係なく画面中央の照準の先へ飛ぶ（固定した敵へ勝手に曲げない）
     dx = u.aimPoint.x - ox; dy = u.aimPoint.y - oy; dz = u.aimPoint.z - oz
+    const f = u.aimFrom
+    if (f) {
+      // 弾はカメラの視線そのものに乗せる。胸から撃つと肩越しの視差で、手前の角や壁に当たって照準の左へそれる
+      let vx = u.aimPoint.x - f.x, vy = u.aimPoint.y - f.y, vz = u.aimPoint.z - f.z
+      const vl = Math.hypot(vx, vy, vz)
+      if (vl > 1e-6) {
+        vx /= vl; vy /= vl; vz /= vl
+        const t0 = (cx - f.x) * vx + (cy0 - f.y) * vy + (cz - f.z) * vz // 視線上で胸と同じ奥行きの点から撃つ
+        const sx = f.x + vx * t0, sy = f.y + vy * t0, sz = f.z + vz * t0
+        if (t0 > 0 && t0 < vl - 0.3 && !st.blocks.some(b => rayBox(sx, sy, sz, vx, vy, vz, b) === 0)) { ox = sx; oy = sy; oz = sz; dx = vx; dy = vy; dz = vz }
+        else if (t0 >= vl - 0.3) { dx = vx; dy = vy; dz = vz } // 照準が自分より手前の壁に付いている: 胸から視線と同じ向きへ
+      }
+    }
   } else if (target) {
     const h = target.hist
     const p = h.length ? h[Math.max(0, h.length - 1 - sp.lag)] : target
@@ -881,7 +895,7 @@ function snipe(st, u, target) {
     }
   }
   if (!hit && hitBlk && len === blkLen) damageBlock(st, hitBlk, (sp.dmin + (sp.dmax - sp.dmin) * charge) * BLDG_DMG.snipe)
-  st.events.push({ type: 'snipe', id: u.id, x: ox, y: oy, z: oz, hx: ox + dx * len, hy: oy + dy * len, hz: oz + dz * len, hit: hit ? hit.id : -1, charge, gun: u.sniper })
+  st.events.push({ type: 'snipe', id: u.id, x: cx, y: cy0, z: cz, hx: ox + dx * len, hy: oy + dy * len, hz: oz + dz * len, hit: hit ? hit.id : -1, charge, gun: u.sniper })
 }
 
 function usePad(st, u, mx, mz) {
@@ -923,6 +937,7 @@ function stepUnit(st, u, input) {
   if (input.lockOff) target = null // 狙いの固定を外している: 攻撃は照準の先へ
   u.targetId = target ? target.id : -1
   u.aimPoint = input.aimPoint || null
+  u.aimFrom = input.aimFrom || null
 
   const stunned = u.stun > 0
   // 移動

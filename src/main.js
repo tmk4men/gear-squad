@@ -1056,12 +1056,15 @@ function turnCamera(dx, dy) {
 }
 
 // 画面中央の照準が指している点: カメラの向きの線を建物・地面・敵に当てる（当たらなければ120m先）
+// 建物は弾と同じ当たり（state.blocks）で測る。見た目の箱で測ると、崩れた後の瓦礫を素通りして照準より手前で弾が止まる
 const aimRay = new THREE.Ray(), aimHit = new THREE.Vector3()
 function aimPointFromCamera() {
   aimRay.origin.copy(camPos)
   aimRay.direction.copy(camLook).sub(camPos).normalize()
   let best = 120
-  for (const bd of buildings) if (!bd.dead && aimRay.intersectBox(bd.box, aimHit)) best = Math.min(best, aimHit.distanceTo(camPos))
+  const d = aimRay.direction
+  if (state) for (const b of state.blocks) best = Math.min(best, G.rayBox(camPos.x, camPos.y, camPos.z, d.x, d.y, d.z, b))
+  else for (const bd of buildings) if (!bd.dead && aimRay.intersectBox(bd.box, aimHit)) best = Math.min(best, aimHit.distanceTo(camPos))
   if (aimRay.direction.y < -1e-4) best = Math.min(best, -camPos.y / aimRay.direction.y)
   if (state) for (const u of state.units) {
     if (!u.alive || u.team === 0) continue
@@ -1092,6 +1095,7 @@ function readInput() {
     shoot: shootHolders.size > 0,
     lockOff: !lockOn,
     aimPoint: aimPointFromCamera(), // 狙撃はいつも照準の先へ（銃は固定中なら相手を狙う）
+    aimFrom: { x: camPos.x, y: camPos.y, z: camPos.z }, // 狙撃の弾はこの視線に乗せる
     aimYaw: camYaw,
     aimPitch: -camPitch * 0.85 + 0.06,
   }
