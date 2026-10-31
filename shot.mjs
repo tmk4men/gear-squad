@@ -13,7 +13,7 @@ await mkdir(join(ROOT, '検証'), { recursive: true })
 const server = spawn(process.execPath, ['server.mjs'], { cwd: ROOT, env: { ...process.env, PORT: String(PORT) } })
 await new Promise(r => setTimeout(r, 400))
 const browser = useWebkit ? await webkit.launch() : await chromium.launch({ channel: 'chromium', args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] })
-const ctx = await browser.newContext({ viewport: { width: W, height: H }, ...(useWebkit && W < H ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}) })
+const ctx = await browser.newContext({ viewport: { width: W, height: H }, ...(useWebkit && (W < H || process.argv.includes('touch')) ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}) })
 const page = await ctx.newPage()
 const errs = []
 page.on('console', m => { if (m.type() === 'error') errs.push(m.text()) })
@@ -134,7 +134,7 @@ if (scene !== 'title') {
 }
 await page.waitForTimeout(scene === 'title' || scene === 'spectate' || scene === 'respawn' || scene === 'warn' || scene.startsWith('snipe') ? 0 : scene === 'over' ? 300 : 2000)
 await page.evaluate(() => window.ts && ts.render())
-const out = join(ROOT, '検証', `${scene}-${size}${useWebkit ? '-webkit' : ''}.png`)
+const out = join(ROOT, '検証', `${scene}-${size}${useWebkit ? '-webkit' : ''}${process.argv.includes('touch') ? '-touch' : ''}.png`)
 await page.screenshot({ path: out })
 console.log(out, JSON.stringify(await page.evaluate(() => ({ cov: ts.coverage(), info: ts.info(), mode: ts.mode, w0: ts.weights(0), w1: ts.weights(1), weights: window.__tsW, wVisible: (() => { let n = 0; ts.three().scene.traverse(o => { if (o.isMesh && o.visible && o.material && o.material.color && o.material.color.getHexString() === '8e96a3' && o.parent && o.parent.visible) n++ }); return n })() }))), errs.length ? 'ERR ' + errs.join(' | ') : 'no errors')
 await browser.close(); server.kill()

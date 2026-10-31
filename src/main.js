@@ -2,10 +2,10 @@
 // 時間で進むものは全部固定60Hzステップの中で進める（draw では状態を描くだけ）。
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { buildCity } from './city.js?v=202610301646'
+import { buildCity } from './city.js?v=202610311057'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import * as G from './game.js?v=202610301646'
+import * as G from './game.js?v=202610311057'
 
 const $ = id => document.getElementById(id)
 const clamp01 = v => Math.max(0, Math.min(1, v))
@@ -73,12 +73,16 @@ const skyMat = new THREE.ShaderMaterial({
   sky.renderOrder = -1
   scene.add(sky)
 }
-const hemi = new THREE.HemisphereLight('#dfe9f5', '#5f6166', 0.55)
+// 半球光は弱め（強いと影の側まで明るくなって立体が消える）。代わりに太陽の反対から寒色の補助光を当てる
+const hemi = new THREE.HemisphereLight('#dfe9f5', '#4d5058', 0.4)
 scene.add(hemi)
+const fill = new THREE.DirectionalLight('#b9cdf0', 0.55)
+scene.add(fill, fill.target)
 const sun = new THREE.DirectionalLight('#ffeedd', 2.6)
 sun.castShadow = true
-sun.shadow.mapSize.set(2048, 2048)
-Object.assign(sun.shadow.camera, { left: -26, right: 26, top: 26, bottom: -26, near: 1, far: 260 })
+const LOW_GPU = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window // スマホは影の解像度を半分に
+sun.shadow.mapSize.set(LOW_GPU ? 1024 : 2048, LOW_GPU ? 1024 : 2048)
+Object.assign(sun.shadow.camera, LOW_GPU ? { left: -20, right: 20, top: 20, bottom: -20, near: 1, far: 260 } : { left: -26, right: 26, top: 26, bottom: -26, near: 1, far: 260 })
 sun.shadow.bias = -0.0005
 sun.shadow.normalBias = 0.03
 scene.add(sun, sun.target)
@@ -125,8 +129,22 @@ fxMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
 fxMesh.frustumCulled = false
 scene.add(fxMesh)
 const fx = []
+// 光る粒（加算合成）: 当たった・撃った・帰還の火花。煙や破片は上の普通の粒
+const glowMesh = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.7, 0), new THREE.MeshBasicMaterial({ toneMapped: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }), FX_MAX)
+glowMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+glowMesh.frustumCulled = false
+scene.add(glowMesh)
+const glow = []
+function spark(x, y, z, n, color, speed = 6, size = 0.12, up = 3, gravity = 8, life = 0.35) {
+  for (let i = 0; i < n; i++) {
+    if (glow.length >= FX_MAX) glow.shift()
+    const a = Math.random() * Math.PI * 2, b = Math.random() * 2 - 1, s = speed * (0.35 + Math.random() * 0.65)
+    glow.push({ x, y, z, vx: Math.cos(a) * s * Math.sqrt(1 - b * b), vz: Math.sin(a) * s * Math.sqrt(1 - b * b), vy: b * s * 0.6 + up * Math.random(), life: life * (0.6 + Math.random() * 0.4), max: life, size: size * (0.6 + Math.random() * 0.8), color, g: gravity, rot: Math.random() * 6 })
+  }
+}
 const fxDummy = new THREE.Object3D()
 const fxColor = new THREE.Color()
+const UPV = new THREE.Vector3(0, 1, 0), tmpDir = new THREE.Vector3()
 function burst(x, y, z, n, color, speed = 6, size = 0.14, up = 3, gravity = 10, life = 0.5) {
   for (let i = 0; i < n; i++) {
     if (fx.length >= FX_MAX) fx.shift()
@@ -134,7 +152,8 @@ function burst(x, y, z, n, color, speed = 6, size = 0.14, up = 3, gravity = 10, 
     fx.push({ x, y, z, vx: Math.cos(a) * s, vz: Math.sin(a) * s, vy: up * (Math.random() * 1.2 - 0.2), life, max: life, size: size * (0.6 + Math.random() * 0.8), color, g: gravity, rot: Math.random() * 6 })
   }
 }
-function stepFx(dt) {
+function stepFx(dt) { stepPool(fx, dt); stepPool(glow, dt) }
+function stepPool(fx, dt) {
   for (let i = fx.length - 1; i >= 0; i--) {
     const f = fx[i]
     f.life -= dt
@@ -145,7 +164,8 @@ function stepFx(dt) {
     f.rot += dt * 6
   }
 }
-function drawFx() {
+function drawFx() { drawPool(fx, fxMesh, false); drawPool(glow, glowMesh, true) }
+function drawPool(fx, fxMesh, stretch) {
   for (let i = 0; i < FX_MAX; i++) {
     const f = fx[i]
     if (!f) { fxDummy.scale.setScalar(0); fxDummy.updateMatrix(); fxMesh.setMatrixAt(i, fxDummy.matrix); continue }
@@ -153,6 +173,10 @@ function drawFx() {
     fxDummy.position.set(f.x, f.y, f.z)
     fxDummy.rotation.set(f.rot, f.rot * 0.7, 0)
     fxDummy.scale.setScalar(f.size * (0.25 + 0.75 * k))
+    if (stretch) { // 火花は進む向きに伸ばす
+      const sp = Math.hypot(f.vx, f.vy, f.vz)
+      if (sp > 0.5) { fxDummy.quaternion.setFromUnitVectors(UPV, tmpDir.set(f.vx / sp, f.vy / sp, f.vz / sp)); fxDummy.scale.y *= 1 + Math.min(4, sp * 0.25) }
+    }
     fxDummy.updateMatrix()
     fxMesh.setMatrixAt(i, fxDummy.matrix)
     fxMesh.setColorAt(i, fxColor.set(f.color))
@@ -199,7 +223,27 @@ function spawnBeam(x, y, z, hx, hy, hz, team, charge, thick = 1, col = null) {
   const w = (0.6 + 0.6 * charge) * thick
   beams.push({ t: 0, life: 0.45, parts: [mk(0.035 * w, new THREE.Color('#ffffff').multiplyScalar(1.5), 1, false), mk(0.14 * w, col || TEAM_COLOR[team], 0.6, true)] })
 }
+// 当たった所に一瞬広がる光の輪（カメラの方を向く）
+const ringGeo = new THREE.RingGeometry(0.86, 1, 40)
+const hitRings = []
+function hitRing(x, y, z, color, size = 1) {
+  const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(1.4), transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false }))
+  m.position.set(x, y, z); m.userData = { t: 0, size }
+  scene.add(m); hitRings.push(m)
+}
+function stepHitRings(dt) {
+  for (let i = hitRings.length - 1; i >= 0; i--) {
+    const m = hitRings[i], d = m.userData
+    d.t += dt
+    const k = d.t / 0.18
+    if (k >= 1) { scene.remove(m); m.material.dispose(); hitRings.splice(i, 1); continue }
+    m.quaternion.copy(camera.quaternion)
+    m.scale.setScalar(d.size * (0.3 + 0.9 * Math.sqrt(k)))
+    m.material.opacity = 0.9 * (1 - k)
+  }
+}
 function stepBeams(dt) {
+  stepHitRings(dt)
   for (let i = beams.length - 1; i >= 0; i--) {
     const b = beams[i]
     b.t += dt
@@ -241,6 +285,15 @@ const padMeshes = []
 
 // ================================================================ ユニット
 const units = [] // 描画側の対応物
+const blobGeo = new THREE.PlaneGeometry(1.5, 1.5).rotateX(-Math.PI / 2)
+const blobMat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false, color: '#ffffff', polygonOffset: true, polygonOffsetFactor: -2,
+  map: (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'); const g = x.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, 'rgba(10,14,22,.55)'); g.addColorStop(0.55, 'rgba(10,14,22,.28)'); g.addColorStop(1, 'rgba(10,14,22,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t })() })
+// 真下の床の高さ（乗れる建物の屋上・モールの床）
+function floorUnder(st, x, z, y) {
+  let g = 0
+  for (const b of st.blocks) if (b.h > g && b.h <= y + 0.4 && Math.abs(x - b.x) <= b.w / 2 && Math.abs(z - b.z) <= b.d / 2) g = b.h
+  return g
+}
 let robotGltf = null
 // 頭身: 元のロボは頭が全身の3分の1ある。頭を外して小さなヘルメットに替え、体を BODY_K 倍に伸ばして身長1.9mに戻す
 const BODY_K = 1.3
@@ -249,7 +302,7 @@ const RUN_NATURAL = 2.51 * BODY_K
 const OVERLAYS = ['Jump', 'Punch', 'Death', 'Dance', 'ThumbsUp', 'Wave', 'Yes', 'No']
 
 async function loadRobot() {
-  robotGltf = await new GLTFLoader().loadAsync('./models/RobotExpressive.glb?v=202610301646')
+  robotGltf = await new GLTFLoader().loadAsync('./models/RobotExpressive.glb?v=202610311057')
 }
 
 // 見た目（自機だけ）: ヘルメットの形・戦闘服の色・バイザーの光。装甲の色は隊の見分けなので変えない
@@ -487,7 +540,11 @@ function makeUnitView(u) {
 
   // 装備を付け終えてから体ごと伸ばす（骨に付けた装備も一緒に伸びる）
   model.scale.multiplyScalar(BODY_K); model.position.y *= BODY_K
-  const v = { id: u.id, root, tilt, model, mixer, actions, mats, ring, blade, rifle, gunMesh, weightBlocks, muzzle, slash, core, cape,
+  // 足元の丸影: 本物の影が届かない遠くでも、地面から浮いて見えないように（跳ぶほど小さく薄く）
+  const blob = new THREE.Mesh(blobGeo, blobMat)
+  blob.renderOrder = 1
+  scene.add(blob)
+  const v = { id: u.id, root, tilt, model, mixer, actions, mats, ring, blade, rifle, gunMesh, weightBlocks, muzzle, slash, core, cape, blob,
     overlay: null, overlayW: 0, near: 1, lean: 0, prevVx: 0, prevVz: 0, land: 0, wasGrounded: true, leakAcc: 0, hidden: false }
   units[u.id] = v
 
@@ -503,7 +560,7 @@ function makeUnitView(u) {
 function clearUnits() {
   for (const v of units) {
     if (!v) continue
-    scene.remove(v.root)
+    scene.remove(v.root, v.blob)
     v.mats.forEach(m => m.dispose())
     v.tag.remove()
   }
@@ -519,7 +576,7 @@ function playOverlay(v, name, timeScale = 1, from = 0) {
 
 function stepUnitView(dt, u, v, frozen) {
   if (!u.alive) {
-    if (!v.hidden) { v.root.visible = false; v.tag.hidden = true; v.hidden = true }
+    if (!v.hidden) { v.root.visible = false; v.tag.hidden = true; v.hidden = true; v.blob.visible = false }
     return
   }
   if (v.hidden) { v.root.visible = true; v.hidden = false }
@@ -528,8 +585,10 @@ function stepUnitView(dt, u, v, frozen) {
   if (v.wn !== wn) { v.weightBlocks.forEach((m, i) => { m.visible = i < wn }); v.wn = wn }
   // 自機は、いま持っている武器だけを見せる（持ち替えで刃・銃・狙撃銃が入れ替わる）
   // 持ち替え: 持っていた武器が縮んで消え、新しい武器が回りながら大きく出てくる（0.25秒）
-  if (u.player && state && !state.autoplay && weapons.length) {
-    const cls = G.TRIGGER_CLASS[weapons[activeW]]
+  // CPU も型が決めた武器（u.held）だけを持つ。距離で持ち替える様子が見える
+  const heldCls = u.player && state && !state.autoplay && weapons.length ? G.TRIGGER_CLASS[weapons[activeW]] : u.held
+  if (heldCls) {
+    const cls = heldCls
     const byCls = { melee: v.blade, gun: v.gunMesh, sniper: v.rifle }
     for (const m of [v.blade, v.gunMesh, v.rifle]) if (m && !m.userData.s0) m.userData.s0 = m.scale.clone()
     if (v.cls !== cls) {
@@ -559,6 +618,12 @@ function stepUnitView(dt, u, v, frozen) {
   // ミラージュ中は誰の目にも影を落とさない（地面の影で居場所が分からないように）
   if (v.shadowOff !== !!u.cham) { v.shadowOff = !!u.cham; v.root.traverse(o => { if (o.isMesh) { if (o.userData.cs === undefined) o.userData.cs = o.castShadow; o.castShadow = u.cham ? false : o.userData.cs } }) }
   v.root.visible = !cloaked && (!(u.shieldT > 0) || Math.floor(u.shieldT * 10) % 2 === 0)
+  {
+    const gy = u.grounded ? u.y : floorUnder(state, u.x, u.z, u.y), h = Math.max(0, u.y - gy)
+    v.blob.visible = !u.cham && h < 8
+    v.blob.position.set(u.x, gy + 0.02, u.z)
+    v.blob.scale.setScalar(Math.max(0.4, 1 - h * 0.08))
+  }
   // 足音: 地面を走った距離が歩幅ぶんたまるたびに鳴らす（自機と近くの機体だけ）
   if (u.grounded && u.speed > 1 && mode === 'play' && !(u.cham && u.team !== 0)) {
     v.stepAcc = (v.stepAcc || 0) + u.speed * dt
@@ -683,8 +748,9 @@ function spawnBailout(x, y, z, team, big = false) {
   }
   scene.add(ring, wave, orb, ...shards)
   bailFx.push({ ring, wave, orb, flash, shards, mats: [dark, paint], t: 0, x, y, z })
-  burst(x, y + 1, z, 40, TEAM_LIGHT[team], 7, 0.16, 3, 6, 0.9)
-  burst(x, y + 1, z, 24, '#ffffff', 5, 0.1, 2, 4, 0.45)
+  burst(x, y + 1, z, 24, TEAM_LIGHT[team], 7, 0.16, 3, 6, 0.9)
+  spark(x, y + 1, z, 50, TEAM_LIGHT[team], 12, 0.14, 4, 5, 0.7)
+  spark(x, y + 1, z, 24, '#ffffff', 7, 0.1, 2, 3, 0.45)
 }
 function stepBailFx(dt) {
   for (let i = bailFx.length - 1; i >= 0; i--) {
@@ -1061,7 +1127,7 @@ const aimRay = new THREE.Ray(), aimHit = new THREE.Vector3()
 function aimPointFromCamera() {
   aimRay.origin.copy(camPos)
   aimRay.direction.copy(camLook).sub(camPos).normalize()
-  let best = 120
+  let best = G.SNIPE_RANGE
   const d = aimRay.direction
   if (state) for (const b of state.blocks) best = Math.min(best, G.rayBox(camPos.x, camPos.y, camPos.z, d.x, d.y, d.z, b))
   else for (const bd of buildings) if (!bd.dead && aimRay.intersectBox(bd.box, aimHit)) best = Math.min(best, aimHit.distanceTo(camPos))
@@ -1689,6 +1755,8 @@ function applyCamera() {
   const fov = baseFov * (1 - 0.55 * zoom) + 9 * Math.sin(Math.min(1, fovKick) * Math.PI / 2)
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix() }
   $('scope').style.opacity = (zoom * 0.95).toFixed(3)
+  // のぞいている間は遠くの霞を薄くする（射程240mの先まで見えるように）
+  { const W = WEATHER[weather]; scene.fog.near = W.fog[0] * (1 + 2 * zoom); scene.fog.far = W.fog[1] * (1 + 0.8 * zoom) }
   camera.position.copy(camPos)
   if (window.__tsCam) { const c = window.__tsCam; camera.position.set(c[0], c[1], c[2]); camera.lookAt(c[3], c[4], c[5]); return }
   if (shake > 0) {
@@ -1701,14 +1769,15 @@ function applyCamera() {
   sun.target.position.set(f.x, 0, f.z)
   // 少し傾いた日差しにして影を長くする（高い建物の影が通りに落ちる）
   sun.position.set(f.x + 66, 78, f.z + 42) // 高層ビルの屋上より遠くに置く（手前にあると上の方が影を落とさない）
+  fill.target.position.set(f.x, 0, f.z); fill.position.set(f.x - 50, 30, f.z - 60)
   skyMat.uniforms.time.value = performance.now() / 1000
 }
 
 // ================================================================ 天候（リーグ戦のステージ条件）。見た目と音だけで、ルールは変えない
 const WEATHER = {
-  clear: { name: '晴れ', top: '#4f86c0', bottom: '#cdd8e1', fog: [60, 420], over: 0, sun: 2.6, hemi: 0.55, exp: 0.9, fall: null },
-  storm: { name: '暴風雨', top: '#59626d', bottom: '#8d969e', fog: [25, 230], over: 1, sun: 0.55, hemi: 0.95, exp: 0.82, fall: 'rain' },
-  snow: { name: '雪', top: '#8f9cab', bottom: '#dde3e8', fog: [35, 260], over: 0.8, sun: 1.1, hemi: 0.9, exp: 0.95, fall: 'snow' },
+  clear: { name: '晴れ', top: '#4f86c0', bottom: '#cdd8e1', fog: [60, 420], over: 0, sun: 2.7, hemi: 0.4, fill: 0.55, exp: 0.98, fall: null },
+  storm: { name: '暴風雨', top: '#59626d', bottom: '#8d969e', fog: [25, 230], over: 1, sun: 0.6, hemi: 0.75, fill: 0.35, exp: 0.86, fall: 'rain' },
+  snow: { name: '雪', top: '#8f9cab', bottom: '#dde3e8', fog: [35, 260], over: 0.8, sun: 1.2, hemi: 0.7, fill: 0.4, exp: 0.98, fall: 'snow' },
 }
 let weather = 'clear'
 try { if (WEATHER[localStorage.getItem('ts-weather')]) weather = localStorage.getItem('ts-weather') } catch {}
@@ -1730,7 +1799,7 @@ function applyWeather(w) {
   HORIZON.set(W.bottom); scene.fog.color.copy(HORIZON)
   scene.fog.near = W.fog[0]; scene.fog.far = W.fog[1]
   skyMat.uniforms.overcast.value = W.over
-  sun.intensity = W.sun; hemi.intensity = W.hemi; renderer.toneMappingExposure = W.exp
+  sun.intensity = W.sun; hemi.intensity = W.hemi; fill.intensity = W.fill; renderer.toneMappingExposure = W.exp
   scene.environmentIntensity = 0.6 * (1 - W.over * 0.5)
   rainMesh.visible = W.fall === 'rain'; snowMesh.visible = W.fall === 'snow'
   setWeatherAudio(weather)
@@ -1933,7 +2002,8 @@ function handleEvents(events) {
       case 'charge': if (u.player || u.team !== 0) SFX.charge(Math.max(0.5, k), G.sniperSpec(u).charge); break
       case 'explode': {
         burst(ev.x, ev.y, ev.z, Math.round(10 + ev.r * 6), '#ff9a3c', 3 + ev.r * 1.6, 0.1 + ev.r * 0.02, 3, 5, 0.45)
-        burst(ev.x, ev.y, ev.z, 14, '#fff3d6', 6, 0.12, 2, 6, 0.3)
+        spark(ev.x, ev.y, ev.z, 26, '#ffd08a', 8 + ev.r, 0.14, 3, 6, 0.4)
+        hitRing(ev.x, ev.y, ev.z, '#ffb070', ev.r * 0.7)
         SFX.boom(Math.max(0.3, k))
         const me = st.units.find(x => x.player)
         if (me && Math.hypot(me.x - ev.x, me.z - ev.z) < 12) shake = Math.max(shake, 0.6)
@@ -1950,7 +2020,9 @@ function handleEvents(events) {
       case 'snipe': {
         if (u.player) window.__tsLastSnipe = ev
         spawnBeam(ev.x, ev.y, ev.z, ev.hx, ev.hy, ev.hz, u.team, ev.charge, ev.gun === 'ibis' ? 2.2 : ev.gun === 'lightning' ? 0.5 : 1, SNIPE_COL[ev.gun])
-        burst(ev.hx, ev.hy, ev.hz, ev.hit >= 0 ? 6 : 10, '#fff6dd', 5, 0.09, 2, 8, 0.3)
+        burst(ev.hx, ev.hy, ev.hz, ev.hit >= 0 ? 4 : 8, '#d9dde2', 4, 0.09, 2, 8, 0.3)
+        spark(ev.hx, ev.hy, ev.hz, 12, SNIPE_COL[ev.gun] || '#fff6dd', 7, 0.08, 2, 8, 0.25)
+        spark(ev.x + (ev.hx - ev.x) * 0.02, ev.y + (ev.hy - ev.y) * 0.02, ev.z + (ev.hz - ev.z) * 0.02, 8, '#fff6dd', 4, 0.07, 0.5, 0, 0.15) // 銃口の火
         SFX.snipe(Math.max(0.45, k), ev.gun)
         if (u.player) shake = Math.max(shake, 0.5)
         break
@@ -1969,17 +2041,20 @@ function handleEvents(events) {
         if (src && src.player && u.team !== src.team) popDamage(ev)
         // 傷から飛び散るものは青
         if (ev.kind === 'blade') {
-          burst(ev.x, ev.y, ev.z, 18, '#4aa8ff', 8, 0.12, 3, 6, 0.35)
-          burst(ev.x, ev.y, ev.z, 8, '#bfe4ff', 6, 0.09, 3, 6, 0.3)
+          burst(ev.x, ev.y, ev.z, 12, '#4aa8ff', 8, 0.12, 3, 6, 0.35)
+          spark(ev.x, ev.y, ev.z, 22, '#9fd4ff', 9, 0.1, 2, 6, 0.3)
+          hitRing(ev.x, ev.y, ev.z, '#bfe4ff', 0.6)
           SFX.hitBlade(k)
           if (u.player || (src && src.player)) { hitstop = 4; shake = 0.8 }
         } else if (ev.kind === 'snipe') {
-          burst(ev.x, ev.y, ev.z, 24, '#4aa8ff', 9, 0.13, 3, 6, 0.4)
-          burst(ev.x, ev.y, ev.z, 12, '#bfe4ff', 6, 0.1, 2, 4, 0.5)
+          burst(ev.x, ev.y, ev.z, 16, '#4aa8ff', 9, 0.13, 3, 6, 0.4)
+          spark(ev.x, ev.y, ev.z, 34, '#ffe9b0', 13, 0.11, 2, 4, 0.4)
+          hitRing(ev.x, ev.y, ev.z, '#fff2c8', 0.9)
           SFX.hitSnipe(Math.max(0.5, k))
           if (u.player || (src && src.player)) { hitstop = 5; shake = Math.max(shake, 1.0) }
         } else {
-          burst(ev.x, ev.y, ev.z, 3, '#6cb8ff', 4, 0.08, 2, 6, 0.25)
+          burst(ev.x, ev.y, ev.z, 2, '#6cb8ff', 4, 0.08, 2, 6, 0.25)
+          spark(ev.x, ev.y, ev.z, 5, '#bfe4ff', 6, 0.07, 1, 6, 0.2)
           SFX.hitBullet(k)
         }
         if (u.player) {
@@ -2312,7 +2387,7 @@ const trigMsg = text => { const m = $('trigMsg'); m.textContent = text; m.classL
 const specOf = t => {
   if (G.MELEE[t]) { const m = G.MELEE[t]; return `威力${m.dmg} ・ 振り${(m.time + m.cd).toFixed(1)}秒` }
   if (G.GUNS[t]) { const g = G.GUNS[t]; return `${g.n > 1 ? g.n + '発×' : ''}${g.dmg} ・ 毎秒${(1 / g.rate).toFixed(1)}回 ・ 射程${g.range}m` }
-  if (G.SNIPERS[t]) { const p = G.SNIPERS[t]; return `威力${p.dmin}〜${p.dmax} ・ ため${p.charge}秒` }
+  if (G.SNIPERS[t]) { const p = G.SNIPERS[t]; return `威力${p.dmin}〜${p.dmax} ・ ため${p.charge}秒 ・ 射程${G.SNIPE_RANGE}m` }
   return null
 }
 for (const b of document.querySelectorAll('.tp')) { const sp = specOf(b.dataset.t); if (sp) b.insertAdjacentHTML('beforeend', `<span class="spec">${sp}</span>`) }

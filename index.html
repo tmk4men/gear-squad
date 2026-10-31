@@ -432,6 +432,15 @@
   #knob{background:rgba(255,255,255,.9)}
   #stick{background:rgba(11,16,25,.35)!important;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.25)}
   @media (prefers-reduced-motion:reduce){ *{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important} }
+  /* ボタンに厚み: 下に濃い縁、上に細い光。押すと沈む */
+  .tb{box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.22),inset 0 2px 0 rgba(255,255,255,.14),0 4px 0 rgba(0,0,0,.42),0 8px 16px rgba(0,0,0,.22);transition:transform .06s}
+  .tb.on{transform:translateY(3px) scale(.95);box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.3),0 1px 0 rgba(0,0,0,.42)}
+  #tBlade{box-shadow:inset 0 3px 0 rgba(255,255,255,.45),0 5px 0 #a87a08,0 0 0 4px rgba(255,197,49,.22),0 10px 18px rgba(0,0,0,.3)}
+  #tBlade.on{transform:translateY(4px) scale(.96);box-shadow:inset 0 3px 0 rgba(255,255,255,.3),0 1px 0 #a87a08}
+  .trig{box-shadow:inset 0 -4px 0 rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.12)}
+  .trig.active{box-shadow:inset 0 -4px 0 var(--signal),inset 0 1px 0 rgba(255,255,255,.16)}
+  /* 中くらいのPC画面: 左下のENと右下のギアが重ならないよう、ENをギアの段の上へ */
+  @media (min-width:761px) and (max-width:1100px){ body:not(.touch) #me{bottom:calc(92px + env(safe-area-inset-bottom))} }
 
   /* 横向きを促す（スマホを縦に持っているとき） */
   #rotate{position:fixed;inset:0;z-index:50;display:grid;place-content:center;justify-items:center;gap:10px;background:rgba(11,16,25,.94);color:#fff;text-align:center;pointer-events:auto}
@@ -446,8 +455,8 @@
     body.touch #me .val{font-size:20px} body.touch #me .lbl{font-size:9.5px} body.touch #me .role{display:none} body.touch #leak{font-size:9.5px;min-height:0}
     body.touch #board{top:calc(4px + env(safe-area-inset-top));transform:translateX(-50%) scale(.8);transform-origin:top center}
     body.touch #feed{top:calc(54px + env(safe-area-inset-top));right:calc(10px + env(safe-area-inset-right))} body.touch .feed{font-size:10.5px;padding:3px 12px}
-    body.touch #call{top:calc(50px + env(safe-area-inset-top));left:50%;right:auto;transform:translateX(-50%);max-width:42vw;font-size:11px;text-align:center}
-    body.touch #snipeWarn{top:calc(84px + env(safe-area-inset-top));left:50%;right:auto;transform:translateX(-50%)}
+    body.touch #call{top:calc(50px + env(safe-area-inset-top));left:calc(50% + 24px);right:auto;transform:translateX(-50%);max-width:34vw;font-size:11px;text-align:center}
+    body.touch #snipeWarn{top:calc(104px + env(safe-area-inset-top));left:50%;right:auto;transform:translateX(-50%)}
     body.touch #wpnPop{top:calc(50% + 64px);bottom:auto}
     body.touch #hint{top:calc(50% + 56px);bottom:auto}
     body.touch #lockState{top:calc(50% + 46px)}
@@ -706,6 +715,6 @@
 </div>
 
 <div id="bootErr" hidden></div>
-<script type="module" src="./src/main.js?v=202610301646"></script>
+<script type="module" src="./src/main.js?v=202610311057"></script>
 </body>
 </html>

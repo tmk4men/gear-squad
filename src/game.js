@@ -71,7 +71,8 @@ export const DASH_T = 0.25
 export const DASH_CD = 1 // ダッシュの待ち時間（秒）
 // 狙撃: 押している間ためて、離して撃つ。弾は一瞬で届く光線。ためるほど強い。
 // 狙いは相手の0.15秒前の位置に付くので、走り回る相手には外れ、止まった相手や着地の瞬間に当たる
-export const SNIPE_RANGE = 160 // 狙撃の届く距離（マップの半分）
+export const SNIPE_RANGE = 240 // 狙撃の届く距離（マップの4分の3。端から端の対角は450m）
+export const SNIPE_FULL = 120, SNIPE_FALLOFF = 0.25 // 120mまでは満額、そこから射程の端で25%減
 const SNIPE_LAG = 9               // 何ステップ前の位置を狙うか（0.15秒）
 const SNIPE_HIT_R = 0.55
 const LOCK_RANGE = 110
@@ -490,18 +491,48 @@ const ROLE_TRIGGERS = {
   shooter: ['rifle', 'pad', 'bag'],
   sniper: ['snipe', 'pad', 'bag'],
 }
-// CPU の組み方の幅（出撃位置がランダムな通常の試合だけ。テストは上の固定の組み方）
-const ROLE_VARIANTS = {
-  // 近接で飛び込む型: 刃＋機動の補助
-  attacker: [['blade', 'pad', 'bag'], ['scorpion', 'pad', 'bag'], ['scorpion', 'pad', 'teleport'], ['blade', 'pad', 'teleport'], ['scorpion', 'chameleon', 'pad'], ['blade', 'chameleon', 'teleport'],
-    ['scorpion', 'shotgun', 'pad', 'teleport'], ['blade', 'pad', 'bag', 'teleport'], ['scorpion', 'chameleon', 'pad', 'teleport']],
-  // 中距離で撃ち、寄られたら斬る型
-  allround: [['blade', 'handgun', 'pad', 'bag'], ['scorpion', 'rifle', 'pad', 'bag'], ['blade', 'shotgun', 'pad', 'bag'], ['scorpion', 'launcher', 'pad', 'teleport'], ['blade', 'rifle', 'pad', 'teleport'],
-    ['scorpion', 'handgun', 'pad', 'chameleon'], ['blade', 'launcher', 'pad', 'bag'], ['scorpion', 'shotgun', 'teleport', 'pad'], ['blade', 'handgun', 'teleport', 'bag']],
-  // 撃つだけの型（銃＋補助）
-  shooter: [['rifle', 'pad', 'bag'], ['handgun', 'pad', 'teleport', 'bag'], ['launcher', 'pad', 'bag'], ['shotgun', 'pad', 'teleport', 'chameleon'], ['rifle', 'pad', 'teleport']],
-  // 狙撃型: 狙撃銃＋寄られたときの銃か補助
-  sniper: [['snipe', 'pad', 'bag'], ['lightning', 'pad', 'bag'], ['ibis', 'pad', 'bag'], ['snipe', 'handgun', 'pad', 'bag'], ['lightning', 'rifle', 'pad', 'bag'], ['ibis', 'pad', 'bag', 'teleport'], ['snipe', 'pad', 'teleport'], ['lightning', 'shotgun', 'pad', 'bag']],
+// CPU の型（出撃位置がランダムな通常の試合だけ。テストは上の固定の組み方）
+// 強さでなく「やり方」が違う。slot = 隊での持ち場（前衛・中衛・狙撃・かく乱）
+// band: 保ちたい間合い [近, 遠]（m）/ swap: 狙撃型が銃へ持ち替える距離 / flank: 横か背後へ回り込む / lob: 物陰ごしに曲射する
+export const STYLES = {
+  // 前衛
+  raider: { slot: 'front', name: '切り込み', trig: ['blade', 'pad', 'teleport', 'bag'], ammo: ['normal'], sense: ['adversity', 'rally'], stats: { spd: 4, en: 3, atk: 3, jmp: 2 }, band: [0, 0], cloakIn: 'bag', blinkIn: true },
+  breacher: { slot: 'front', name: '押し込み', trig: ['scorpion', 'shotgun', 'pad', 'teleport'], ammo: ['normal', 'weight'], sense: ['adversity', 'hawk'], stats: { spd: 4, en: 3, atk: 3, jmp: 2 }, band: [0, 7], blinkIn: true },
+  vanguard: { slot: 'front', name: '突撃', trig: ['scorpion', 'rifle', 'pad', 'bag'], ammo: ['normal', 'blast'], sense: ['rally', 'precise'], stats: { spd: 4, en: 4, atk: 2, jmp: 2 }, band: [3, 10] },
+  // 中衛
+  gunner: { slot: 'mid', name: '撃ち合い', trig: ['blade', 'rifle', 'pad', 'bag'], ammo: ['normal', 'curve'], sense: ['precise', 'hawk'], stats: { spd: 3, en: 4, atk: 3, jmp: 2 }, band: [10, 20], standGround: true },
+  bomber: { slot: 'mid', name: '曲射', trig: ['scorpion', 'launcher', 'pad', 'teleport'], ammo: ['normal', 'blast'], sense: ['hawk', 'adversity'], stats: { spd: 3, en: 4, atk: 3, jmp: 2 }, band: [16, 32], lob: true },
+  chaser: { slot: 'mid', name: '追尾', trig: ['handgun', 'pad', 'bag', 'teleport'], ammo: ['homing', 'curve'], sense: ['precise', 'rally'], stats: { spd: 3, en: 3, atk: 3, jmp: 3 }, band: [16, 28], blinkOut: true },
+  // 狙撃
+  perch: { slot: 'sniper', name: '陣取り狙撃', trig: ['snipe', 'handgun', 'pad', 'bag'], ammo: ['normal'], sense: ['precise', 'hawk'], stats: { spd: 2, en: 3, atk: 4, jmp: 3 }, band: [35, 70], nest: true, swap: 24 },
+  roamer: { slot: 'sniper', name: '移動狙撃', trig: ['lightning', 'rifle', 'pad', 'teleport'], ammo: ['normal'], sense: ['hawk', 'rally'], stats: { spd: 3, en: 3, atk: 3, jmp: 3 }, band: [28, 60], swap: 20, relocate: 3 },
+  heavy: { slot: 'sniper', name: '一撃狙撃', trig: ['ibis', 'pad', 'bag', 'teleport'], ammo: ['normal'], sense: ['precise', 'rally'], stats: { spd: 2, en: 4, atk: 4, jmp: 2 }, band: [40, 65], nest: true, blinkOut: true },
+  // かく乱
+  phantom: { slot: 'disrupt', name: '消える奇襲', trig: ['scorpion', 'chameleon', 'pad', 'teleport'], ammo: ['normal'], sense: ['adversity', 'rally'], stats: { spd: 4, en: 3, atk: 3, jmp: 2 }, band: [0, 0], flank: true, cloakIn: 'cham', blinkIn: true },
+  anchor: { slot: 'disrupt', name: '足止め', trig: ['handgun', 'chameleon', 'teleport', 'pad'], ammo: ['weight'], sense: ['hawk', 'rally'], stats: { spd: 4, en: 3, atk: 2, jmp: 3 }, band: [10, 20], flank: true, cloakIn: 'cham', blinkOut: true },
+  ambush: { slot: 'disrupt', name: '待ち伏せ', trig: ['shotgun', 'bag', 'teleport', 'pad'], ammo: ['normal', 'blast'], sense: ['adversity', 'hawk'], stats: { spd: 3, en: 4, atk: 3, jmp: 2 }, band: [0, 8], flank: true, cloakIn: 'bag', blinkIn: true },
+}
+export const STYLE_SLOTS = ['front', 'mid', 'sniper', 'disrupt']
+// 隊の組み方（3人）。狙撃は1人まで、近くで戦える人（前衛かかく乱）を必ず1人入れる
+export const TEAM_PLANS = [
+  ['front', 'mid', 'sniper'], ['front', 'disrupt', 'sniper'], ['front', 'mid', 'disrupt'],
+  ['disrupt', 'mid', 'sniper'], ['front', 'front', 'sniper'], ['front', 'mid', 'mid'], ['disrupt', 'front', 'mid'],
+]
+const slotOfTrig = trig => trig.includes('chameleon') ? 'disrupt' : { attacker: 'front', allround: 'mid', shooter: 'mid', sniper: 'sniper' }[roleOf(trig)]
+// 1隊ぶんの型を選ぶ。fixed = 既に決まっている持ち場（自機）。同じ型は1隊に1人まで
+function pickTeamStyles(st, n, fixed = null) {
+  const plans = TEAM_PLANS.filter(p => !fixed || p.includes(fixed))
+  const plan = [...plans[Math.floor(st.rand() * plans.length)]]
+  if (fixed) plan.splice(plan.indexOf(fixed), 1)
+  const used = new Set(), out = []
+  for (const slot of plan.slice(0, n)) {
+    const pool = Object.keys(STYLES).filter(k => STYLES[k].slot === slot && !used.has(k))
+    const k = pool[Math.floor(st.rand() * pool.length)]
+    used.add(k); out.push(k)
+  }
+  // 並び順もばらす（出撃位置が持ち場で固定されないように）
+  for (let i = out.length - 1; i > 0; i--) { const j = Math.floor(st.rand() * (i + 1)); [out[i], out[j]] = [out[j], out[i]] }
+  return out
 }
 const pickClass = (trig, cls) => trig.find(t => TRIGGER_CLASS[t] === cls) || null
 export const sniperSpec = u => SNIPERS[u.sniper] || SNIPERS.snipe
@@ -557,22 +588,28 @@ export function createState(seed = Date.now(), opts = {}) {
   }
   // 出撃位置: 既定は毎回ランダム。テストは固定（以前の位置）
   const mine3 = opts.spawn === 'fixed' ? LEGACY_SPAWN : pickSpawns(st)
+  const myTrig = validTriggers(opts.triggers) || (opts.loadout === 'sniper' ? ['snipe', 'shoot', 'pad', 'bag'] : null)
+  // CPU の型: 通常の試合は隊ごとに組み方を引く（自機の隊は自機の持ち場を除いた2人）
+  const randomStyles = opts.spawn !== 'fixed'
+  const teamStyles = randomStyles ? [pickTeamStyles(st, 2, slotOfTrig(myTrig || ROLE_TRIGGERS.allround)), pickTeamStyles(st, 3)] : null
+  const styleQ = [0, 0]
   ROSTER.forEach((r, i) => {
     const sp = mine3[i % 3], sgn = r.team === 0 ? 1 : -1
     r = { ...r, x: sp[0] * sgn, z: sp[1] * sgn }
-    // 自機の役割は出撃前に選ぶ（allround = ブレード＋スプリッター、sniper = 狙撃＋スプリッター）
     // 自機は出撃前に組んだギア（無ければ役割の既定）。古い loadout 指定も受ける
-    const mine = r.player && (validTriggers(opts.triggers) || (opts.loadout === 'sniper' ? ['snipe', 'shoot', 'pad', 'bag'] : null))
-    const slotRole = opts.spawn !== 'fixed' && r.role === 'allround' && !r.player && st.rand() < 0.35 ? 'shooter' : r.role // 隊の真ん中は銃だけの型にもなる
-    const variants = opts.spawn !== 'fixed' && ROLE_VARIANTS[slotRole]
-    const trig = mine || (variants ? variants[Math.floor(st.rand() * variants.length)] : ROLE_TRIGGERS[r.role])
-    const ammo = r.player && AMMO[opts.ammo] ? opts.ammo : variants ? AMMO_TYPES[Math.floor(st.rand() * AMMO_TYPES.length)] : 'normal'
+    const mine = r.player && myTrig
+    const style = !r.player && teamStyles ? teamStyles[r.team][styleQ[r.team]++] : null
+    const S = style && STYLES[style]
+    const trig = mine || (S ? [...S.trig] : ROLE_TRIGGERS[r.role])
+    const ammo = r.player && AMMO[opts.ammo] ? opts.ammo : S ? S.ammo[Math.floor(st.rand() * S.ammo.length)] : 'normal'
+    if (S) r.name = S.name
     const role = roleOf(trig) // 組み方から役割を決める（CPU も）
     st.units.push({
       id: i, team: r.team, role, trig, name: r.name, player: !!r.player,
       melee: pickClass(trig, 'melee'), gun: pickClass(trig, 'gun'), sniper: pickClass(trig, 'sniper'), ammo,
-      sense: r.player ? (SENSES.includes(opts.sense) ? opts.sense : null) : variants ? SENSES[Math.floor(st.rand() * SENSES.length)] : null,
-      cham: false, teleCd: 0, stats: r.player && opts.stats ? validStats(opts.stats, opts.statBonus) : { ...(ROLE_STATS[role] || ROLE_STATS.allround), ...(opts.spawn === 'fixed' ? { spd: 3, en: 3, atk: 3, jmp: 3 } : {}) },
+      sense: r.player ? (SENSES.includes(opts.sense) ? opts.sense : null) : S ? S.sense[Math.floor(st.rand() * S.sense.length)] : null,
+      style, slot: S ? S.slot : null, held: null,
+      cham: false, teleCd: 0, stats: r.player && opts.stats ? validStats(opts.stats, opts.statBonus) : S ? { ...S.stats } : { ...(ROLE_STATS[role] || ROLE_STATS.allround), ...(opts.spawn === 'fixed' ? { spd: 3, en: 3, atk: 3, jmp: 3 } : {}) },
       x: r.x, y: 0, z: r.z, vx: 0, vy: 0, vz: 0,
       yaw: Math.atan2(-r.x, -r.z), grounded: true, speed: 0, // 最初は街の中心を向く
       en: MAX_EN, maxEn: MAX_EN, leak: 0, wounds: [], alive: true, outT: -1, lastHitBy: -1, kills: 0, deaths: 0,
@@ -864,7 +901,9 @@ function snipe(st, u, target) {
   } else if (target) {
     const h = target.hist
     const p = h.length ? h[Math.max(0, h.length - 1 - sp.lag)] : target
-    dx = p.x - ox; dy = p.y + 1.0 - oy; dz = p.z - oz
+    // CPU は25mより遠いほど狙いがぶれる（70mで最大±0.54m）
+    const far = u.player && !st.autoplay ? 0 : Math.max(0, Math.hypot(p.x - ox, p.z - oz) - 25) * 0.012
+    dx = p.x + (st.rand() * 2 - 1) * far - ox; dy = p.y + 1.0 + (st.rand() * 2 - 1) * far - oy; dz = p.z + (st.rand() * 2 - 1) * far - oz
   } else if (u.aimPoint) {
     dx = u.aimPoint.x - ox; dy = u.aimPoint.y - oy; dz = u.aimPoint.z - oz
   } else if (u.aimYaw !== undefined) {
@@ -890,7 +929,8 @@ function snipe(st, u, target) {
   if (hit) {
     const hl = Math.hypot(dx, dz) || 1
     const head = u.sense === 'precise' && hitY > hit.y + 1.45 ? PRECISE_HEAD : 1 // 精密: 頭は1.3倍
-    if (damage(st, hit, (sp.dmin + (sp.dmax - sp.dmin) * charge) * head, sp.leak * (0.5 + 0.5 * charge), u, 'snipe', dx / hl, dz / hl)) {
+    const drop = 1 - SNIPE_FALLOFF * Math.max(0, Math.min(1, (len - SNIPE_FULL) / (SNIPE_RANGE - SNIPE_FULL))) // 120mより先は弱まる（240mで75%）
+    if (damage(st, hit, (sp.dmin + (sp.dmax - sp.dmin) * charge) * head * drop, sp.leak * (0.5 + 0.5 * charge), u, 'snipe', dx / hl, dz / hl)) {
       hit.vx += dx / hl * sp.kick * charge; hit.vz += dz / hl * sp.kick * charge
     }
   }
@@ -1215,7 +1255,7 @@ function aiInput(st, u) {
     // 25秒だれとも撃ち合わなければ、別の狙撃場所へ移る
     // 味方がいなくなったら、または試合が半分を過ぎたら、陣取るのをやめて探しに出る（狙撃手どうしのにらみ合いで止まらないように）
     const mates = st.units.some(a => a.alive && a.team === u.team && a.id !== u.id)
-    if (u.role === 'sniper' && u.trig.includes('pad') && st.mainMap && STAGES[st.stage].nests.length && mates && st.t < MATCH_TIME / 2) {
+    if (u.role === 'sniper' && (!STYLES[u.style] || STYLES[u.style].nest) && u.trig.includes('pad') && st.mainMap && STAGES[st.stage].nests.length && mates && st.t < MATCH_TIME / 2) {
       const standing = n => st.blocks.some(b => b.id === n.id) // 崩れた狙撃場所は使わない
       if (ai.nest && !standing(ai.nest)) ai.nest = null
       if (!ai.nest || ai.nestT > 25) {
@@ -1237,7 +1277,8 @@ function aiInput(st, u) {
     if (ai.lastSeen && Math.hypot(g.x - u.x, g.z - u.z) < 2) ai.lastSeen = null
     const r = routeTo(st, u, g.x, g.z)
     const sv = steer(st, u, r[0], r[1])
-    return { mx: sv.mx * pace, mz: sv.mz * pace, bagSet: u.role === 'sniper' && u.en > 8 }
+    const sty = STYLES[u.style]
+    return { mx: sv.mx * pace, mz: sv.mz * pace, bagSet: (u.role === 'sniper' && u.en > 8) || (!!sty && sty.cloakIn === 'bag' && u.en > 40), chamSet: sty && sty.cloakIn === 'cham' ? !!ai.lastSeen && u.en > 40 : undefined }
   }
   if (!enemies.length) return search()
   if (ai.think <= 0) {
@@ -1328,6 +1369,67 @@ function aiInput(st, u) {
     return inp
   }
 
+  // 型を持つ CPU（通常の試合）: 間合い・持ち替え・補助の使い方が型ごとに違う
+  const S = STYLES[u.style]
+  if (S) {
+    const reactOk = st.rand() < dt / ai.reaction
+    const ml = u.melee ? MELEE[u.melee] : null
+    const gr = u.gun ? gunRange(u) : 0
+    const level = Math.abs(t.y - u.y) < 1.6
+    // 持ち替え: 距離で使う武器を決める。替えた直後の0.3秒は撃てない（人の持ち替えと同じ手間）
+    let want
+    if (ml && level && d < (u.gun || u.sniper ? 3.4 : 6)) want = 'melee'
+    else if (u.sniper && d >= (u.gun ? S.swap || 20 : 8)) want = 'sniper'
+    else if (u.gun && d < gr * 1.15) want = 'gun'
+    else want = ml ? 'melee' : u.gun ? 'gun' : 'sniper'
+    ai.swapT = Math.max(0, (ai.swapT || 0) - dt)
+    if (!u.held) u.held = want
+    else if (want !== u.held && u.snipeT < 0 && u.bladeT < 0) { u.held = want; ai.swapT = 0.3; st.events.push({ type: 'swap', id: u.id, cls: want }) }
+    const ready = ai.swapT <= 0
+    const [lo, hi] = S.band
+    // 回り込み先: 相手の向きの斜め後ろ
+    const flankTo = () => {
+      const fx = Math.sin(t.yaw), fz = Math.cos(t.yaw)
+      const px = t.x - fx * 7 + fz * 5 * ai.side, pz = t.z - fz * 7 - fx * 5 * ai.side
+      if (Math.hypot(px - u.x, pz - u.z) < 2.5) { toward(); return }
+      const r = routeTo(st, u, px, pz); wx = r[0]; wz = r[1]
+    }
+    const meleeFoe = enemies.find(e => e.melee && Math.hypot(e.x - u.x, e.z - u.z) < 5)
+    if (u.held === 'sniper' && S.nest && ai.nest && Math.abs(u.x - ai.nest.x) < ai.nest.w / 2 && Math.abs(u.z - ai.nest.z) < ai.nest.d / 2 && u.y > ai.nest.h - 0.3 && d >= 12) { wx = 0; wz = 0 } // 狙撃場所からは動かない
+    else if (u.held === 'melee' || hi === 0) {
+      if (S.flank && d > 7 && !(u.hurtT >= 0)) flankTo(); else toward()
+      // 撃たれながら詰めるときはジグザグに走って弾をかわす
+      if (vis && d > 5 && d < 30) { ai.zigT = (ai.zigT || 0) - dt; if (ai.zigT <= 0) { ai.zigT = 0.45 + st.rand() * 0.4; ai.strafe *= -1 } wx += -dz / d * ai.strafe * 0.75; wz += dx / d * ai.strafe * 0.75 }
+    }
+    else if (!vis || d > hi) { if (S.flank && d < hi + 25) flankTo(); else toward() }
+    else if (d < lo) { if (S.standGround && meleeFoe && ml) toward(); else away() }
+    else if (S.relocate && (ai.shots || 0) >= S.relocate) { strafe(0); ai.moveT = (ai.moveT || 0) + dt; if (ai.moveT > 2.2) { ai.shots = 0; ai.moveT = 0 } }
+    else strafe(d > (lo + hi) / 2 ? 0.4 : -0.2)
+    // 攻撃
+    if (ready && u.held === 'melee' && ml && d < ml.range + 0.3 && level && reactOk) inp.blade = true
+    if (ready && u.held === 'gun' && (vis || S.lob) && d < gr && u.shootCd <= 0 && burst(st, ai) && ai.dodgeT <= 0 && u.en > 1.2) inp.shoot = true
+    if (ready && u.held === 'sniper' && vis && d >= 8 && d < Math.min(SNIPE_RANGE, hi) && (u.snipeT >= 0 || (u.snipeCd <= 0 && reactOk && u.en > 1.2))) {
+      if (u.snipeT < 0) { const sp = sniperSpec(u); ai.snipeAt = Math.max(sp.min + 0.02, sp.charge * (0.55 + st.rand() * 0.45)); ai.shots = (ai.shots || 0) + 1 }
+      inp.snipe = u.snipeT < ai.snipeAt
+    }
+    // 補助
+    const busy = inp.blade || inp.shoot || inp.snipe || u.snipeT >= 0
+    if (u.trig.includes('teleport') && u.teleCd <= 0) {
+      if (S.blinkIn && vis && d > 6 && d < 20 && st.rand() < 0.04) inp.tele = true // 間合いを一気に詰める
+      if (S.blinkOut && d < Math.max(6, lo * 0.6) && st.rand() < 0.05) { away(); inp.tele = true } // 寄られたら飛んで離れる
+      if (S.relocate && (ai.shots || 0) >= S.relocate && st.rand() < 0.03) inp.tele = true
+    }
+    if ((S.slot === 'front' || u.held === 'melee') && d > 4 && d < 10 && vis && st.rand() < 0.04) inp.dash = true // 斬れる間合いへ踏み込む
+    if (d > 9 && u.grounded && st.rand() < 0.01 && S.slot !== 'sniper') inp.pad = true
+    if (t.y > u.y + 1.5 && d < 8 && u.grounded) inp.pad = true
+    if (S.cloakIn === 'bag' || u.role === 'sniper') inp.bagSet = u.trig.includes('bag') && u.en > (u.role === 'sniper' ? 8 : 30) && (u.role === 'sniper' || d > 9)
+    if (S.cloakIn === 'cham') inp.chamSet = d > (u.held === 'melee' ? 2.2 : 6) && d < 60 && u.en > 25 && !busy // 刃の型は斬る直前まで消えている
+    const sv = steer(st, u, wx, wz)
+    const plant = inp.shoot && u.gun === 'rifle' && d > 6 ? 0.25 : 1 // ライフルは足を止めて撃つ（走りながらだと散る）
+    inp.mx = sv.mx * plant; inp.mz = sv.mz * plant
+    if (ai.stuckT > 0.8) { ai.side *= -1; if (u.grounded) inp.pad = true; ai.stuckT = 0 }
+    return inp
+  }
   const canBlade = u.role === 'attacker' || u.role === 'allround'
   const canShoot = canShootRole(u)
   const reactOk = st.rand() < dt / ai.reaction  // 反応の遅れ（平均 reaction 秒）

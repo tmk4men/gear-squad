@@ -11,7 +11,7 @@ for (let m = 0; m < N; m++) {
     const classes = [[MEL], [GUN], [SNP], [MEL, GUN], [MEL, SNP], [GUN, SNP]][Math.floor(rnd() * 6)]
     const w = classes.map(pick), sup = [...SUP].sort(() => rnd() - 0.5).slice(0, 4 - w.length)
     u.trig = G.validTriggers([...w, ...sup]); u.melee = u.trig.find(t => MEL.includes(t)) || null; u.gun = u.trig.find(t => GUN.includes(t)) || null; u.sniper = u.trig.find(t => SNP.includes(t)) || null
-    u.role = G.roleOf(u.trig); u.ammo = pick(G.AMMO_TYPES); u.stats = { spd: 3, en: 3, atk: 3, jmp: 3 }
+    u.role = G.roleOf(u.trig); u.style = null; u.slot = null; u.held = null; u.ammo = pick(G.AMMO_TYPES); u.stats = { spd: 3, en: 3, atk: 3, jmp: 3 }
     u._keys = [...u.trig, u.gun ? 'ammo:' + u.ammo : null].filter(Boolean)
     for (const k of u._keys) add(k, 'n', 1)
   }

@@ -773,5 +773,65 @@ const mallSt = seed => { const st = G.createState(seed, { spawn: 'fixed', stage:
   for (let i = 0; i < 120; i++) G.step(st, { bagSet: true })
   ok(w.en < 5, 'マントを着ている間は回復しない', `en=${w.en.toFixed(2)}`)
 }
+{ // CPU の型: 試合ごとに違い、隊の中で偏らない（狙撃は1人まで・近くで戦える人が1人以上・同じ型は1人まで）
+  const sets = new Set(), seen = new Set()
+  let bad = [], noClose = 0, dupe = 0, support = { bag: 0, chameleon: 0, teleport: 0 }
+  for (let sd = 0; sd < 60; sd++) {
+    const st = G.createState(9000 + sd)
+    for (const team of [0, 1]) {
+      const us = st.units.filter(u => u.team === team)
+      const slots = us.map(u => u.player ? (u.trig.includes('chameleon') ? 'disrupt' : { attacker: 'front', allround: 'mid', shooter: 'mid', sniper: 'sniper' }[u.role]) : u.slot)
+      if (slots.filter(x => x === 'sniper').length > 1) bad.push(sd + ':' + slots)
+      if (!slots.some(x => x === 'front' || x === 'disrupt')) noClose++
+      const styles = us.filter(u => !u.player).map(u => u.style)
+      if (new Set(styles).size !== styles.length) dupe++
+      styles.forEach(x => seen.add(x))
+      if (team === 1) sets.add([...styles].sort().join())
+      for (const u of us) if (!u.player) { for (const k in support) if (u.trig.includes(k)) support[k]++ ; if (G.validTriggers(u.trig)?.length !== u.trig.length) bad.push('invalid ' + u.style) }
+    }
+  }
+  ok(sets.size >= 20, '敵隊の組み方が試合ごとに変わる（60試合で20通り以上）', `${sets.size}通り`)
+  ok(seen.size === Object.keys(G.STYLES).length, 'どの型も出てくる', `${seen.size}/${Object.keys(G.STYLES).length}`)
+  ok(!bad.length && !noClose && !dupe, '1隊に狙撃は1人まで・近くで戦える人が必ずいる・同じ型は重ならない', `狙撃2人=${bad.length} 近接なし=${noClose} 重複=${dupe}`)
+  ok(support.bag > 0 && support.chameleon > 0 && support.teleport > 0, 'CPU も補助ギア（マント・ミラージュ・ブリンク）を持つ', JSON.stringify(support))
+  const st1 = G.createState(9100)
+  ok(st1.units.every(u => u.player || G.STYLES[u.style]?.name === u.name), 'CPU の名札は型の名前')
+}
+{ // CPU は距離で武器を持ち替える（狙撃型は寄られたら銃、押し込み型は目の前で刃）
+  const setStyle = (u, k) => { const S = G.STYLES[k]; Object.assign(u, { style: k, slot: S.slot, trig: [...S.trig], held: null, melee: S.trig.find(t => G.TRIGGER_CLASS[t] === 'melee') || null, gun: S.trig.find(t => G.TRIGGER_CLASS[t] === 'gun') || null, sniper: S.trig.find(t => G.TRIGGER_CLASS[t] === 'sniper') || null, role: G.roleOf(S.trig) }) }
+  const heldAt = (k, d) => {
+    const st = G.createState(9200, { blocks: [] }); killAllBut(st, [0, 3])
+    const [me, e] = [st.units[0], st.units[3]]
+    setStyle(e, k); put(me, 0, d); put(e, 0, 0)
+    for (let i = 0; i < 30; i++) { G.step(st, {}); put(me, 0, e.z + d) }
+    return e.held
+  }
+  const far = heldAt('perch', 50), near = heldAt('perch', 10)
+  ok(far === 'sniper' && near === 'gun', '陣取り狙撃: 50mは狙撃銃、10mはハンドガン', `50m=${far} 10m=${near}`)
+  const b2 = heldAt('breacher', 2), b10 = heldAt('breacher', 10)
+  ok(b2 === 'melee' && b10 === 'gun', '押し込み: 2mは刃、10mはショットガン', `2m=${b2} 10m=${b10}`)
+  // 消える奇襲は近づく間ミラージュで消える
+  const st = G.createState(9201, { blocks: [] }); killAllBut(st, [0, 3])
+  const [me, e] = [st.units[0], st.units[3]]
+  setStyle(e, 'phantom'); put(me, 0, 35); put(e, 0, 0)
+  let cham = false
+  for (let i = 0; i < 180; i++) { G.step(st, {}); if (e.cham) cham = true }
+  ok(cham, '消える奇襲は近づく間ミラージュを使う')
+}
+{ // 狙撃の射程は240m: 230m先には届き、250m先には届かない
+  const at = (ex, ez) => {
+    const st = G.createState(9300, { blocks: [], spawn: 'fixed', loadout: 'sniper' }); killAllBut(st, [0, 3])
+    const [me, e] = [st.units[0], st.units[3]]
+    put(me, -110, -110, { snipeCd: 0 }); put(e, ex, ez); e.ai.think = 1e9; e.ai.targetId = -1
+    const aim = { x: ex, y: 1, z: ez }
+    for (let i = 0; i < 70; i++) { G.step(st, { snipe: true, aimPoint: aim }); put(e, ex, ez) }
+    G.step(st, { snipe: false, aimPoint: aim })
+    return 100 - e.en
+  }
+  ok(G.SNIPE_RANGE >= 220 && G.SNIPE_RANGE <= 260, '狙撃の射程は220〜260m', `${G.SNIPE_RANGE}m`)
+  const hit = at(52, 52), miss = at(68, 68)
+  ok(hit > 0 && miss === 0, '230m先の相手に当たり、250m先には届かない', `230m=${hit.toFixed(1)} 250m=${miss.toFixed(1)}`)
+  ok(hit < G.SNIPERS.snipe.dmax * 0.85, '遠い狙撃は威力が落ちる（120mより先）', `230m=${hit.toFixed(1)} / 満額${G.SNIPERS.snipe.dmax}`)
+}
 console.log(`\n${pass} OK / ${fail} FAIL`)
 process.exit(fail ? 1 : 0)
