@@ -456,7 +456,7 @@ export const TRIGGER_CLASS = { blade: 'melee', scorpion: 'melee', handgun: 'gun'
 export const ATTACK_TRIGGERS = TRIGGERS.filter(t => ['melee', 'gun', 'sniper'].includes(TRIGGER_CLASS[t]))
 // 近接: ブロードセイバーは重くて強い、スティンガーは軽くて速い
 export const MELEE = {
-  blade: { dmg: 22, time: 0.42, from: 0.1, to: 0.24, range: 2.6, lunge: 9, cd: 0.5, leak: 0.6, arc: Math.cos(80 * Math.PI / 180) },
+  blade: { dmg: 22, time: 0.42, from: 0.1, to: 0.24, range: 2.9, lunge: 9, cd: 0.5, leak: 0.6, arc: Math.cos(80 * Math.PI / 180) },
   scorpion: { dmg: 14, time: 0.28, from: 0.06, to: 0.16, range: 2.2, lunge: 12, cd: 0.18, leak: 0.45, arc: Math.cos(70 * Math.PI / 180) },
 }
 // 銃: 撃ち方が違う。押している間、銃ごとの間隔で撃ち続ける（連射の速さで、待ち時間ではない）
@@ -496,8 +496,8 @@ const ROLE_TRIGGERS = {
 // band: 保ちたい間合い [近, 遠]（m）/ swap: 狙撃型が銃へ持ち替える距離 / flank: 横か背後へ回り込む / lob: 物陰ごしに曲射する
 export const STYLES = {
   // 前衛
-  raider: { slot: 'front', name: '切り込み', trig: ['blade', 'pad', 'teleport', 'bag'], ammo: ['normal'], sense: ['adversity', 'rally'], stats: { spd: 4, en: 3, atk: 3, jmp: 2 }, band: [0, 0], cloakIn: 'bag', blinkIn: true },
-  breacher: { slot: 'front', name: '押し込み', trig: ['scorpion', 'shotgun', 'pad', 'teleport'], ammo: ['normal', 'weight'], sense: ['adversity', 'hawk'], stats: { spd: 4, en: 3, atk: 3, jmp: 2 }, band: [0, 7], blinkIn: true },
+  raider: { slot: 'front', name: '切り込み', trig: ['blade', 'pad', 'teleport', 'bag'], ammo: ['normal'], sense: ['adversity', 'rally'], stats: { spd: 4, en: 5, atk: 2, jmp: 1 }, band: [0, 0], cloakIn: 'bag', blinkIn: true, waitAlly: true, pickWeak: true, bailOut: true },
+  breacher: { slot: 'front', name: '押し込み', trig: ['scorpion', 'shotgun', 'pad', 'teleport'], ammo: ['normal', 'weight'], sense: ['adversity', 'hawk'], stats: { spd: 4, en: 3, atk: 3, jmp: 2 }, band: [0, 7], blinkIn: true, pickWeak: true, bailOut: true },
   vanguard: { slot: 'front', name: '突撃', trig: ['scorpion', 'rifle', 'pad', 'bag'], ammo: ['normal', 'blast'], sense: ['rally', 'precise'], stats: { spd: 4, en: 4, atk: 2, jmp: 2 }, band: [3, 10] },
   // 中衛
   gunner: { slot: 'mid', name: '撃ち合い', trig: ['blade', 'rifle', 'pad', 'bag'], ammo: ['normal', 'curve'], sense: ['precise', 'hawk'], stats: { spd: 3, en: 4, atk: 3, jmp: 2 }, band: [10, 20], standGround: true },
@@ -508,7 +508,7 @@ export const STYLES = {
   roamer: { slot: 'sniper', name: '移動狙撃', trig: ['lightning', 'rifle', 'pad', 'teleport'], ammo: ['normal'], sense: ['hawk', 'rally'], stats: { spd: 3, en: 3, atk: 3, jmp: 3 }, band: [28, 60], swap: 20, relocate: 3 },
   heavy: { slot: 'sniper', name: '一撃狙撃', trig: ['ibis', 'pad', 'bag', 'teleport'], ammo: ['normal'], sense: ['precise', 'rally'], stats: { spd: 2, en: 4, atk: 4, jmp: 2 }, band: [40, 65], nest: true, blinkOut: true },
   // かく乱
-  phantom: { slot: 'disrupt', name: '消える奇襲', trig: ['scorpion', 'chameleon', 'pad', 'teleport'], ammo: ['normal'], sense: ['adversity', 'rally'], stats: { spd: 4, en: 3, atk: 3, jmp: 2 }, band: [0, 0], flank: true, cloakIn: 'cham', blinkIn: true },
+  phantom: { slot: 'disrupt', name: '消える奇襲', trig: ['scorpion', 'chameleon', 'pad', 'teleport'], ammo: ['normal'], sense: ['adversity', 'rally'], stats: { spd: 4, en: 3, atk: 3, jmp: 2 }, band: [0, 0], flank: true, cloakIn: 'cham', blinkIn: true, bailOut: true },
   anchor: { slot: 'disrupt', name: '足止め', trig: ['handgun', 'chameleon', 'teleport', 'pad'], ammo: ['weight'], sense: ['hawk', 'rally'], stats: { spd: 4, en: 3, atk: 2, jmp: 3 }, band: [10, 20], flank: true, cloakIn: 'cham', blinkOut: true },
   ambush: { slot: 'disrupt', name: '待ち伏せ', trig: ['shotgun', 'bag', 'teleport', 'pad'], ammo: ['normal', 'blast'], sense: ['adversity', 'hawk'], stats: { spd: 3, en: 4, atk: 3, jmp: 2 }, band: [0, 8], flank: true, cloakIn: 'bag', blinkIn: true },
 }
@@ -1094,7 +1094,7 @@ function stepUnit(st, u, input) {
         if (d > 0.01 && (dx * fx + dz * fz) / d < ml.arc) continue
         u.bladeHit.push(e.id)
         const nx = d > 0.01 ? dx / d : fx, nz = d > 0.01 ? dz / d : fz
-        if (damage(st, e, ml.dmg, ml.leak, u, 'blade', nx, nz)) { e.vx += nx * 6; e.vz += nz * 6 }
+        if (damage(st, e, ml.dmg, ml.leak, u, 'blade', nx, nz)) { e.vx += nx * 4.5; e.vz += nz * 4.5 } // 弾き飛ばしすぎると次の一太刀が届かない
         else { u.vx -= nx * 5; u.vz -= nz * 5 } // 防がれたら弾かれる
       }
     }
@@ -1286,7 +1286,10 @@ function aiInput(st, u) {
     let best = null, bs = Infinity
     for (const e of enemies) {
       const d = Math.hypot(e.x - u.x, e.z - u.z)
-      const s = d + (lineOfSight(st, u, e) ? 0 : 12) - (e.id === ai.targetId ? 3 : 0) + e.en * 0.04
+      // 斬り込む型は、弱っていて味方から離れた相手を選ぶ（3人に囲まれに行かない）
+      const pw = STYLES[u.style]?.pickWeak
+      const crowd = pw ? enemies.filter(o => o !== e && Math.hypot(o.x - e.x, o.z - e.z) < 12).length * 10 : 0
+      const s = d + (lineOfSight(st, u, e) ? 0 : 12) - (e.id === ai.targetId ? 3 : 0) + e.en * (pw ? 0.2 : 0.04) + crowd
       if (s < bs) { bs = s; best = e }
     }
     ai.targetId = best.id
@@ -1395,6 +1398,21 @@ function aiInput(st, u) {
       const r = routeTo(st, u, px, pz); wx = r[0]; wz = r[1]
     }
     const meleeFoe = enemies.find(e => e.melee && Math.hypot(e.x - u.x, e.z - u.z) < 5)
+    // 切り込みは一人で突っ込まない: 味方が相手の近くにいる・相手が味方と撃ち合っている・相手が孤立している、のどれかで飛び込む。
+    // 待つのは最長5秒（待ち続けて膠着しないように）
+    let hold = false
+    if (S.waitAlly && u.held === 'melee' && d > 7) {
+      const allyNear = st.units.some(a => a.alive && a.team === u.team && a.id !== u.id && Math.hypot(a.x - t.x, a.z - t.z) < 25)
+      const busyT = st.units[t.targetId] && st.units[t.targetId].team === u.team && t.targetId !== u.id
+      const alone = !enemies.some(e => e !== t && Math.hypot(e.x - t.x, e.z - t.z) < 15)
+      ai.holdT = allyNear || busyT || alone ? 0 : (ai.holdT || 0) + dt
+      hold = ai.holdT > 0 && ai.holdT < 5
+      if (ai.holdT > 9) ai.holdT = 0
+    }
+    // 囲まれて削られたら、ブリンクで抜けて仕切り直す
+    const near2 = enemies.filter(e => Math.hypot(e.x - u.x, e.z - u.z) < 12).length
+    if (S.bailOut && u.teleCd <= 0 && ((u.en < u.maxEn * 0.35 && near2 >= 2) || (u.en < u.maxEn * 0.45 && t.en > u.en + 25 && d < 10))) { away(); inp.tele = true; inp.bagSet = u.trig.includes('bag'); const sv = steer(st, u, wx, wz); inp.mx = sv.mx; inp.mz = sv.mz; return inp }
+    if (hold) { if (d < 18) away(); else if (d > 26 || !vis) toward(); else strafe(0); if (S.cloakIn === 'bag') inp.bagSet = u.en > 20; const sv = steer(st, u, wx, wz); inp.mx = sv.mx; inp.mz = sv.mz; return inp }
     if (u.held === 'sniper' && S.nest && ai.nest && Math.abs(u.x - ai.nest.x) < ai.nest.w / 2 && Math.abs(u.z - ai.nest.z) < ai.nest.d / 2 && u.y > ai.nest.h - 0.3 && d >= 12) { wx = 0; wz = 0 } // 狙撃場所からは動かない
     else if (u.held === 'melee' || hi === 0) {
       if (S.flank && d > 7 && !(u.hurtT >= 0)) flankTo(); else toward()
@@ -1406,7 +1424,9 @@ function aiInput(st, u) {
     else if (S.relocate && (ai.shots || 0) >= S.relocate) { strafe(0); ai.moveT = (ai.moveT || 0) + dt; if (ai.moveT > 2.2) { ai.shots = 0; ai.moveT = 0 } }
     else strafe(d > (lo + hi) / 2 ? 0.4 : -0.2)
     // 攻撃
-    if (ready && u.held === 'melee' && ml && d < ml.range + 0.3 && level && reactOk) inp.blade = true
+    if (ready && u.held === 'melee' && ml && d < ml.range + 0.3 && level && (reactOk || (S.slot === 'front' && st.rand() < dt / 0.12))) inp.blade = true // 間合いに入ったら前衛は素早く振る
+    // 斬って弾き飛ばした相手を追う: 3〜7m に離れたら踏み込みで詰め直す
+    if (S.slot === 'front' && u.held === 'melee' && vis && level && d > 3 && d < 7 && u.dashCd <= 0 && u.bladeT < 0 && st.rand() < 0.12) { toward(); inp.dash = true }
     if (ready && u.held === 'gun' && (vis || S.lob) && d < gr && u.shootCd <= 0 && burst(st, ai) && ai.dodgeT <= 0 && u.en > 1.2) inp.shoot = true
     if (ready && u.held === 'sniper' && vis && d >= 8 && d < Math.min(SNIPE_RANGE, hi) && (u.snipeT >= 0 || (u.snipeCd <= 0 && reactOk && u.en > 1.2))) {
       if (u.snipeT < 0) { const sp = sniperSpec(u); ai.snipeAt = Math.max(sp.min + 0.02, sp.charge * (0.55 + st.rand() * 0.45)); ai.shots = (ai.shots || 0) + 1 }

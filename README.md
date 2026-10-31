@@ -5,8 +5,8 @@
 
 ```bash
 node server.mjs          # http://localhost:5180 で遊ぶ（PORT=5185 node server.mjs で変更可）
-node test.mjs            # ロジック154項目（以前の小さい街・固定の出撃位置で回す）
-node sim.mjs 300         # CPU同士で試合を回す。初接触までの時間・勝率・決着時間・膠着・めり込み
+node test.mjs            # ロジック155項目（以前の小さい街・固定の出撃位置で回す）
+node sim.mjs 300         # CPU同士で試合を回す。初接触までの時間・勝率・決着時間・膠着（開幕は別に数える）・めり込み
 node shot.mjs fight      # 1シーンだけ撮る（title/play/fight/shoot/pad/hop/wall/bail/over/spectate/respawn/overtime/warn/ping/street/scale/meteora/hound/tele/cham/lowen/sky/
                          #   snipe-charge/snipe-shot/snipe-enemy/chars/chars-back、390x844 webkit、storm/snow で天候）
 node playtest.mjs 100    # 実時間・本物のキー入力で1試合（webkit / 844x390 / sniper / harbor / mall も可）→ 検証/playtest/
@@ -32,6 +32,8 @@ https://tmk4men.github.io/gear-squad/ （PC・スマホのブラウザ）
 - ミラージュは敵から完全に消える（影・名札・音の印も無し）。手がかりはミニマップの点と、撃たれた・ダッシュした瞬間のゆらめきだけ
 - スマホは横画面。縦に持つと案内が出る（Android は全画面で横に固定）
 - CPU は12の型から試合ごとに組む（前衛: 切り込み・押し込み・突撃／中衛: 撃ち合い・曲射・追尾／狙撃: 陣取り狙撃・移動狙撃・一撃狙撃／かく乱: 消える奇襲・足止め・待ち伏せ）。1隊に狙撃は1人まで、近くで戦える人を必ず1人、同じ型は重ねない。型ごとに保つ間合い・距離での持ち替え（狙撃型は寄られたら銃、押し込み型は目の前で刃）・補助の使い方（マントで寄る、ミラージュで背後へ回る、ブリンクで詰める／逃げる）が違う。名札は型の名前。`node _styles.mjs 30` で型ごとの撃破・被撃破を見る
+- 前衛の切り込み・押し込みは、弱っていて孤立した相手を選ぶ。切り込みは相手が固まっていて味方が近くにいなければ最長5秒は間合いの外で待つ。囲まれて削られたらブリンクで抜ける。斬って弾いた相手には踏み込みで詰め直す
+- `sim.mjs` の stalls は撃ち合いが始まった後に20秒だれのENも動かない回数。開幕の接近中（まだ誰も会っていない）は openingQuiet に分けて数える
 - 狙撃は120mまで満額、そこから射程の端（240m）へ向けて威力が最大25%落ちる。CPU の狙撃は25mより遠いほどぶれる
 - 索敵: レーダー50m・目視70m。見えない敵の音がミニマップに出る。M（スマホはミニマップを押す）で全体地図
 

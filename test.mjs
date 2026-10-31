@@ -818,6 +818,21 @@ const mallSt = seed => { const st = G.createState(seed, { spawn: 'fixed', stage:
   for (let i = 0; i < 180; i++) { G.step(st, {}); if (e.cham) cham = true }
   ok(cham, '消える奇襲は近づく間ミラージュを使う')
 }
+{ // 切り込みは、囲まれた相手へ一人で突っ込まない（味方が相手の近くにいれば飛び込む）
+  const setStyle = (u, k) => { const S = G.STYLES[k]; Object.assign(u, { style: k, slot: S.slot, trig: [...S.trig], held: null, melee: S.trig.find(t => G.TRIGGER_CLASS[t] === 'melee') || null, gun: null, sniper: null, role: G.roleOf(S.trig) }) }
+  const closest = withAlly => {
+    const st = G.createState(9400, { blocks: [] }); killAllBut(st, withAlly ? [0, 1, 2, 3, 4] : [0, 1, 2, 3])
+    const r = st.units[3]; setStyle(r, 'raider')
+    const spots = { 0: [0, 0], 1: [5, 3], 2: [-5, 3], 4: [6, -6] } // 相手(0)の両脇に相手の味方、4 は切り込みの味方
+    for (const id of [0, 1, 2, 4]) { const u = st.units[id]; if (!u.alive) continue; put(u, ...spots[id]); u.ai.think = 1e9; u.ai.targetId = -1 }
+    put(r, 0, 22)
+    let dmin = 99
+    for (let i = 0; i < 240; i++) { G.step(st, {}); for (const id of [0, 1, 2, 4]) if (st.units[id].alive) put(st.units[id], ...spots[id]); dmin = Math.min(dmin, ...[0, 1, 2].map(id => Math.hypot(r.x - spots[id][0], r.z - spots[id][1]))) }
+    return dmin
+  }
+  const alone = closest(false), helped = closest(true)
+  ok(alone > 12 && helped < 4, '切り込み: 相手が固まっていて味方がいなければ間合いの外で待ち、味方が寄れば飛び込む', `ひとり=${alone.toFixed(1)}m 味方あり=${helped.toFixed(1)}m`)
+}
 { // 狙撃の射程は240m: 230m先には届き、250m先には届かない
   const at = (ex, ez) => {
     const st = G.createState(9300, { blocks: [], spawn: 'fixed', loadout: 'sniper' }); killAllBut(st, [0, 3])

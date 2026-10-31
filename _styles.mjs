@@ -1,9 +1,10 @@
 // CPU の型ごとの撃破・被撃破・与ダメージ・攻撃回数。node _styles.mjs [試合数] [all=自機の枠も型にする]
 import * as G from './src/game.js'
 const N = +process.argv[2] || 30
+const FROM = +(process.argv.find(a => a.startsWith('from=')) || 'from=0').slice(5) // 並列で回すときの開始番号
 const S = {}, add = (k, f, v = 1) => { S[k] ??= { n: 0, kills: 0, deaths: 0, dmg: 0, blade: 0, shoot: 0, snipe: 0, tele: 0, cham: 0, swap: 0 }; S[k][f] += v }
 let win = [0, 0, 0], kills = 0
-for (let m = 0; m < N; m++) {
+for (let m = FROM; m < FROM + N; m++) {
   const st = G.createState(5000 + m, { autoplay: true, stage: ['city', 'harbor', 'mall'][m % 3] })
   const key = u => u.style || 'player:' + u.role
   if (process.argv.includes('all')) { // 自機の枠も型にする（型どうしだけの釣り合いを見る）
@@ -28,5 +29,6 @@ for (let m = 0; m < N; m++) {
   }
   win[st.winner === -1 ? 2 : st.winner]++
 }
+if (process.argv.includes('json')) { console.log(JSON.stringify({ S, win, kills, N })); process.exit(0) }
 console.log({ N, win0: win[0], win1: win[1], draw: win[2], killsPerMatch: +(kills / N).toFixed(1) })
 console.table(Object.fromEntries(Object.entries(S).map(([k, v]) => [k, { n: v.n, 'K/人': +(v.kills / v.n).toFixed(2), 'D/人': +(v.deaths / v.n).toFixed(2), 'dmg/人': Math.round(v.dmg / v.n), 斬: Math.round(v.blade / v.n), 撃: Math.round(v.shoot / v.n), 狙: Math.round(v.snipe / v.n), 跳: Math.round(v.tele / v.n), 消: Math.round(v.cham / v.n), 替: Math.round(v.swap / v.n) }])))
