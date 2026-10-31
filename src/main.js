@@ -2,10 +2,10 @@
 // 時間で進むものは全部固定60Hzステップの中で進める（draw では状態を描くだけ）。
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { buildCity } from './city.js?v=202610311249'
+import { buildCity } from './city.js?v=202610311322'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import * as G from './game.js?v=202610311249'
+import * as G from './game.js?v=202610311322'
 
 const $ = id => document.getElementById(id)
 const clamp01 = v => Math.max(0, Math.min(1, v))
@@ -104,7 +104,8 @@ function canvasTex(w, h, draw, repeat = [1, 1]) {
 let stageKey = 'city'
 try { if (G.STAGES[localStorage.getItem('ts-stage')]) stageKey = localStorage.getItem('ts-stage') } catch {}
 let cityGroup = null, buildings = [], perimeter = null
-function buildStage(k) {
+let builtStage = null
+function buildStage(k, remember = true) {
   if (cityGroup) {
     scene.remove(cityGroup)
     const seen = new Set()
@@ -113,10 +114,11 @@ function buildStage(k) {
       for (const m of [].concat(o.material || [])) { if (seen.has(m)) continue; seen.add(m); for (const key of ['map', 'roughnessMap', 'metalnessMap']) if (m[key] && !seen.has(m[key])) { seen.add(m[key]); m[key].dispose() } m.dispose() }
     })
   }
-  stageKey = G.STAGES[k] ? k : 'city'
-  try { localStorage.setItem('ts-stage', stageKey) } catch {}
+  k = G.STAGES[k] ? k : 'city'
+  if (remember) { stageKey = k; try { localStorage.setItem('ts-stage', stageKey) } catch {} }
+  builtStage = k
   cityGroup = new THREE.Group(); scene.add(cityGroup)
-  const c = buildCity(cityGroup, G, stageKey)
+  const c = buildCity(cityGroup, G, k)
   buildings = c.buildings; perimeter = c.perimeter
   for (const bd of buildings) bd.boxPad = bd.box.clone().expandByScalar(0.25)
 }
@@ -258,7 +260,7 @@ function drawAimLines(st) {
   for (const u of st.units) {
     // 線は敵のスナイパー（狙われている合図）と自分のぶんだけ出す
     if (!u.alive || u.role !== 'sniper' || u.snipeT < 0 || (u.team === 0 && !u.player)) continue
-    const t = st.units[u.targetId]
+    const t = G.uid(st, u.targetId)
     if (!t || !t.alive) continue
     let L = aimLines[n]
     if (!L) {
@@ -302,7 +304,7 @@ const RUN_NATURAL = 2.51 * BODY_K
 const OVERLAYS = ['Jump', 'Punch', 'Death', 'Dance', 'ThumbsUp', 'Wave', 'Yes', 'No']
 
 async function loadRobot() {
-  robotGltf = await new GLTFLoader().loadAsync('./models/RobotExpressive.glb?v=202610311249')
+  robotGltf = await new GLTFLoader().loadAsync('./models/RobotExpressive.glb?v=202610311322')
 }
 
 // 見た目（自機だけ）: ヘルメットの形・戦闘服の色・バイザーの光。装甲の色は隊の見分けなので変えない
@@ -1292,6 +1294,7 @@ function drawRadar(st) {
     x.beginPath(); x.moveTo(0, s * 1.2); x.lineTo(s * 0.8, -s * 0.8); x.lineTo(-s * 0.8, -s * 0.8); x.closePath(); x.fill()
     x.restore()
   }
+  drawPveMarks(x, st, 1)
   x.restore()
   // 音のした場所（見えていない敵の発砲・エアステップ・ダッシュなど）。範囲の外なら縁に出す
   for (const p of pings) {
@@ -1314,6 +1317,16 @@ function drawRadar(st) {
   x.beginPath(); x.arc(R, R, R - 1, 0, 7); x.stroke()
   x.fillStyle = 'rgba(255,255,255,.08)'
   x.beginPath(); x.moveTo(R, R); x.arc(R, R, R - 1, -Math.PI / 2 - 0.5, -Math.PI / 2 + 0.5); x.fill()
+}
+// 協力の敵と基地（ミニマップと全体地図）
+function drawPveMarks(x, st, k) {
+  if (st.mode === 'pvp') return
+  if (st.boss && st.boss.hp > 0) { x.fillStyle = 'rgba(255,90,80,.9)'; x.beginPath(); x.arc(st.boss.x, st.boss.z, 5.5 * k, 0, 7); x.fill(); x.strokeStyle = '#fff'; x.lineWidth = 0.8 * k; x.stroke() }
+  if (st.def) {
+    x.fillStyle = '#6fa2ff'; x.fillRect(st.def.base.x - 3 * k, st.def.base.z - 3 * k, 6 * k, 6 * k)
+    x.fillStyle = '#ff6b5e'
+    for (const f of st.foes) if (f.alive) { x.beginPath(); x.arc(f.x, f.z, (f.kind === 'brute' ? 1.6 : 1.1) * k, 0, 7); x.fill() }
+  }
 }
 // 全体地図: M（スマホはミニマップをタップ）で開閉。北（-z）を上に固定し、街全体・味方・見えている敵・音の印を出す
 let bigMap = false
@@ -1358,13 +1371,36 @@ function drawBigMap(st) {
     x.beginPath(); x.moveTo(0, r * 1.2); x.lineTo(r * 0.8, -r * 0.8); x.lineTo(-r * 0.8, -r * 0.8); x.closePath(); x.fill()
     x.restore()
   }
+  drawPveMarks(x, st, 1.6)
   // 自機の向いている方（カメラ）
   if (me.alive) { x.strokeStyle = 'rgba(255,255,255,.55)'; x.lineWidth = 1.5 / sc; x.beginPath(); x.moveTo(me.x, me.z); x.lineTo(me.x + Math.sin(camYaw) * 30, me.z + Math.cos(camYaw) * 30); x.stroke() }
   x.restore()
   x.fillStyle = 'rgba(255,255,255,.7)'; x.font = '800 12px "Hiragino Sans","Noto Sans JP",sans-serif'; x.textBaseline = 'top'
   x.fillText(isTouch ? '全体地図　タップで閉じる' : '全体地図　M で閉じる', 10, 10)
 }
+function drawPveHud(st) {
+  // 協力: 上の帯に大型の敵の体力か、ウェーブと基地の耐久だけを出す
+  let name, sub, r, cls
+  if (st.mode === 'boss') {
+    const B = st.boss
+    name = G.BOSS_NAME; r = B.hp / B.maxHp
+    sub = B.stagger > 0 ? '膝をついた　コアを狙え' : `第${B.phase}段階　残り ${fmtTime(st.timeLeft)}`
+    cls = 'boss'
+  } else {
+    const D = st.def, left = D.queue.length + st.foes.filter(f => f.alive).length
+    name = D.wave ? `WAVE ${D.wave} / ${G.DEF_WAVES}` : '準備'
+    sub = D.wave ? `基地の耐久　敵 残り${left}` : `基地の耐久　${Math.ceil(D.breakT)}秒後に最初の波`
+    r = D.base.hp / D.base.max; cls = r < 0.3 ? 'base low' : 'base'
+  }
+  const key = name + sub + Math.round(r * 200) + cls
+  if (hud.pv === key) return
+  hud.pv = key
+  $('pvName').textContent = name; $('pvSub').textContent = sub
+  $('pveBar').className = 'plate ' + cls
+  $('pvFill').style.transform = `scaleX(${Math.max(0, r).toFixed(3)})`
+}
 function drawHud(st) {
+  if (st.mode !== 'pvp') drawPveHud(st)
   drawRadar(st)
   if (bigMap) drawBigMap(st)
   const meU = st.units.find(u => u.player)
@@ -1373,11 +1409,11 @@ function drawHud(st) {
   const adv = G.adverse(meU)
   if (hud.adv !== adv) { hud.adv = adv; $('me').classList.toggle('adverse', adv); $('meRole').textContent = adv ? '逆境 発動' : ROLE_LABEL[meU.role] }
   if (hud.role !== meU.role) { hud.role = meU.role; $('meRole').textContent = ROLE_LABEL[meU.role] }
-  if (!callState.min1 && !st.overtime && st.timeLeft <= 60 && mode === 'play') { callState.min1 = true; call(`残り1分、${st.score[0]}対${st.score[1]}`) }
+  if (st.mode === 'pvp' && !callState.min1 && !st.overtime && st.timeLeft <= 60 && mode === 'play') { callState.min1 = true; call(`残り1分、${st.score[0]}対${st.score[1]}`) }
   const tl = st.overtime ? '延長' : fmtTime(st.timeLeft)
   if (hud.t !== tl) { $('clock').textContent = tl; $('clock').classList.toggle('low', st.overtime || st.timeLeft <= 30); hud.t = tl }
   // 脱出中は再出撃までの秒読み
-  const rs = !meU.alive && mode === 'play' ? Math.max(1, Math.ceil(G.respawnT(meU) - meU.outT)) : 0
+  const rs = !meU.alive && mode === 'play' ? Math.max(1, Math.ceil(G.respawnDelay(st, meU) - meU.outT)) : 0
   if (hud.rs !== rs) { hud.rs = rs; $('respawnT').textContent = rs }
   // 敵のスナイパーにためられている
   const aimed = meU.alive && st.units.some(e => e.alive && e.team !== meU.team && e.snipeT >= 0 && e.targetId === meU.id)
@@ -1458,12 +1494,14 @@ function drawHud(st) {
     if (ch >= 0) $('rCh').setAttribute('d', arcPath(44, CH_ARC[1] - (CH_ARC[1] - CH_ARC[0]) * ch / 100, CH_ARC[1]))
     $('rCh').classList.toggle('full', ch >= 100)
   }
-  const t = st.units[me.targetId]
+  const t = G.uid(st, me.targetId)
   $('reticle').classList.toggle('locked', !!(me.alive && t && t.alive))
   $('reticle').style.visibility = me.alive ? '' : 'hidden'
   $('hint').hidden = !(mode === 'play' && st.t > 3.2 && st.t < 11 && me.alive && !window.__tsNoHint) // 作戦開始の表示が消えてから出す
+  if (hud.hintMode !== st.mode) { hud.hintMode = st.mode; $('hint').querySelector('span').innerHTML = st.mode === 'pvp' ? HINT_PVP : PVE_INFO[st.mode].hint }
 }
 
+const HINT_PVP = $('hint').querySelector('span').innerHTML
 const tmpV = new THREE.Vector3()
 function toScreen(x, y, z) {
   tmpV.set(x, y, z).project(camera)
@@ -1530,7 +1568,7 @@ function drawTags(st) {
     a.v.tag.style.top = a.y + 'px'
   }
   const lock = $('lock')
-  const t = me && me.alive ? st.units[me.targetId] : null
+  const t = me && me.alive ? G.uid(st, me.targetId) : null
   if (t && t.alive) {
     const p = toScreen(t.x, t.y + 1.0, t.z)
     lock.hidden = !p.front
@@ -1620,7 +1658,7 @@ function autoAim(dt, st) {
   manualT += dt
   if (mode !== 'play' || manualT < 1.2 || window.__tsNoAuto || !lockOn) return
   const me = st.units.find(u => u.player)
-  const t = me && me.alive ? st.units[me.targetId] : null
+  const t = me && me.alive ? G.uid(st, me.targetId) : null
   if (!t || !t.alive) return
   const d = Math.hypot(t.x - me.x, t.z - me.z)
   if (d > 90 || d < 0.8) return
@@ -1645,7 +1683,7 @@ function stepCamera(dt, st) {
     else pivot.lerp(tmpV, Math.min(1, dt * 14))
     const me = st.units.find(u => u.player)
     const zoomWant = mode === 'play' && me.alive && me.snipeT >= 0 ? Math.min(1, me.snipeT / G.sniperSpec(me).charge * 1.6) : 0
-    aimAt = me.alive && st.units[me.targetId] && st.units[me.targetId].alive ? st.units[me.targetId] : null
+    aimAt = me.alive && G.uid(st, me.targetId) && G.uid(st, me.targetId).alive ? G.uid(st, me.targetId) : null
     zoom += (zoomWant - zoom) * Math.min(1, dt * (zoomWant > zoom ? 9 : 14))
     const dist = (portrait ? CAM_DIST + 1.4 : CAM_DIST) * (1 - 0.45 * zoom)
     const shoulder = (portrait ? 0.45 : CAM_SHOULDER) + 0.5 * zoom
@@ -1832,7 +1870,7 @@ function call(text) {
   const el = $('call')
   el.innerHTML = `<b>実況</b>${text}`
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show')
-  clearTimeout(callTimer); callTimer = setTimeout(() => el.classList.remove('show'), 3200)
+  clearTimeout(callTimer); callTimer = setTimeout(() => el.classList.remove('show'), state && state.mode !== 'pvp' ? 2200 : 3200) // 協力は敵が見えることを優先して短く
 }
 let callState = {}
 
@@ -1910,6 +1948,8 @@ let titleUnits = null
 
 function setupTitle() {
   // タイトル: 自隊の3人が並ぶ
+  clearPveView()
+  document.body.classList.remove('pve')
   state = G.createState(1, { triggers: myTrig, stage: stageKey })
   clearUnits()
   for (const u of state.units) makeUnitView(u)
@@ -1938,10 +1978,15 @@ function lockLandscape() {
     if (req && !document.fullscreenElement) { const p = req.call(el); if (p && p.then) p.then(lock).catch(() => {}); else lock() } else lock()
   } catch {}
 }
+const PVE_REASON = { boss: 'グラムドーザを倒した', time: '時間切れ', wipe: '全員が強制帰還した', base: '基地が落ちた', waves: '全ウェーブを守り切った' }
+const PVE_INFO = { boss: { name: '大型の敵', hint: '脚を2本壊すと膝をつく。背中のコアが弱点' }, defense: { name: '防衛', hint: '北から押し寄せる敵を基地（南）に近づけない' } }
+let pveMode = null // 協力のシナリオ（null は対戦）
 function startGame() {
   ensureAudio()
   lockLandscape()
   if (mode === 'play') return
+  const want = pveMode ? 'city' : stageKey // 協力の舞台は市街地
+  if (builtStage !== want) buildStage(want, !pveMode)
   clearUnits()
   for (const m of padMeshes) scene.remove(m)
   padMeshes.length = 0
@@ -1955,8 +2000,11 @@ function startGame() {
   toggleBigMap(false)
   beams.length = 0
   fx.length = 0
-  state = G.createState(Date.now(), { triggers: myTrig, ammo: myAmmo, stats: myStats, statBonus: statBonus(), sense: mySense, stage: stageKey, ...(window.__tsOpts || {}) })
+  state = G.createState(Date.now(), { triggers: myTrig, ammo: myAmmo, stats: myStats, statBonus: statBonus(), sense: mySense, stage: stageKey, ...(pveMode ? { mode: pveMode } : {}), ...(window.__tsOpts || {}) })
   for (const u of state.units) makeUnitView(u)
+  setupPveView(state)
+  document.body.classList.toggle('pve', state.mode !== 'pvp')
+  $('board').hidden = state.mode !== 'pvp'; $('pveBar').hidden = state.mode === 'pvp'; hud.pv = null
   hud = {}
   buildPips()
   for (const k in pressed) pressed[k] = false
@@ -1974,11 +2022,289 @@ function startGame() {
   camYaw = me.yaw
   camPitch = 0.16
   pivot.set(me.x, me.y + CAM_HEIGHT, me.z)
+  callState = { first: false, min1: false }
+  if (state.mode !== 'pvp') {
+    const P = PVE_INFO[state.mode]
+    banner('協力作戦', `${P.name}　6人で挑む　${WEATHER[weather].name}`, 'var(--blue)')
+    setTimeout(() => { if (mode === 'play') call(state.mode === 'boss' ? '脚を壊して、背中のコアを狙え' : '北から来る敵を基地へ通すな') }, 1600)
+    return
+  }
   let round = 1
   try { round = (+localStorage.getItem('ts-round') || 0) + 1; localStorage.setItem('ts-round', round) } catch {}
   banner('作戦開始', `リーグ戦 ROUND ${round}　${G.STAGES[stageKey].name}　${WEATHER[weather].name}`, 'var(--blue)')
-  callState = { first: false, min1: false }
   setTimeout(() => { if (mode === 'play') call(`ステージは${G.STAGES[stageKey].name}、天候は${WEATHER[weather].name}。各隊員、ばらばらの位置から出撃しました`) }, 1600)
+}
+
+// ================================================================ 協力（PvE）の描画
+// 大型の敵（部位ごとのメッシュ）、人型の敵（まとめて描く。遠くは手足を省く）、基地、大技の予兆
+const pve = { root: null, boss: null, grunts: null, base: null, teles: [], shownWave: 0 }
+const stdM = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.45, ...o })
+function strut(a, b, r, mat) {
+  const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), len = A.distanceTo(B)
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.85, len, 10), mat)
+  m.position.copy(A).add(B).multiplyScalar(0.5)
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), B.clone().sub(A).normalize())
+  m.castShadow = true
+  return m
+}
+// グラムドーザ: 黒鉄の甲羅に橙の継ぎ目、背中に赤いコア。四つ脚で、両肩に砲身
+function buildBossView() {
+  const g = new THREE.Group(), body = new THREE.Group()
+  g.add(body)
+  const parts = {}
+  const P = key => (parts[key] = parts[key] || { meshes: [], mats: [], flash: 0 })
+  const mkMat = (key, color, o = {}) => { const m = stdM(color, { emissive: '#2c323b', emissiveIntensity: 0.7, ...o }); m.userData.base = m.emissive.clone(); m.userData.baseI = m.emissiveIntensity; P(key).mats.push(m); return m }
+  const add = (key, mesh, parent = body) => { mesh.castShadow = true; parent.add(mesh); P(key).meshes.push(mesh); return mesh }
+  // 胴: つぶした球の甲羅＋装甲板＋継ぎ目の光
+  const armor = mkMat('body', '#5a636f', { roughness: 0.42, metalness: 0.55 })
+  const plate = mkMat('body', '#8a929c', { roughness: 0.5, metalness: 0.45 })
+  const seam = mkMat('body', '#1a1d22', { emissive: '#ff6a2a', emissiveIntensity: 1.6 })
+  const shell = add('body', new THREE.Mesh(new THREE.SphereGeometry(4, 28, 18), armor)); shell.scale.set(1.15, 0.72, 1.3); shell.position.set(0, 8.2, 0.2)
+  for (const [x, y, z, w, h, d, rx] of [[0, 10.6, 1.6, 5.4, 0.5, 3.6, -0.18], [0, 10.3, -1.6, 4.6, 0.5, 2.6, 0.2], [-3.6, 8.6, 0.4, 0.6, 2.6, 6.4, 0], [3.6, 8.6, 0.4, 0.6, 2.6, 6.4, 0]]) {
+    const m = add('body', new THREE.Mesh(new THREE.BoxGeometry(w, h, d), plate)); m.position.set(x, y, z); m.rotation.x = rx
+  }
+  for (const z of [-2.4, 0, 2.4]) { const m = add('body', new THREE.Mesh(new THREE.TorusGeometry(4.25, 0.07, 6, 40), seam)); m.position.set(0, 8.2, z * 1.05); m.scale.set(1.15, 0.72, 1); }
+  // 背びれ（甲羅の上に3枚）と、脚の付け根を覆う腰の装甲
+  for (const [z, h] of [[2.2, 1.4], [0.4, 1.9], [-1.4, 1.5]]) { const m = add('body', new THREE.Mesh(new THREE.ConeGeometry(0.9, h, 4), plate)); m.position.set(0, 11.2 + h * 0.3, z); m.scale.set(0.35, 1, 1.6) }
+  for (const sx of [-1, 1]) { const m = add('body', new THREE.Mesh(new THREE.BoxGeometry(1.0, 2.4, 8.2), armor)); m.position.set(sx * 4.2, 6.6, 0.2); m.rotation.z = sx * 0.18 }
+  // 顔: 前に突き出たくさび＋赤い横長の目（光線はここから）
+  const face = add('body', new THREE.Mesh(new THREE.BoxGeometry(3.4, 2.2, 2.4), plate)); face.position.set(0, 8.9, 4.6); face.rotation.x = 0.25
+  const eyeM = mkMat('body', '#200608', { emissive: '#ff2a3a', emissiveIntensity: 2.4 })
+  const eye = add('body', new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.28, 0.2), eyeM)); eye.position.set(0, 9.3, 5.85); eye.rotation.x = 0.25
+  // コア（弱点）: 背中の枠の中で脈打つ
+  const coreM = mkMat('core', '#3a0a14', { emissive: '#ff3d6e', emissiveIntensity: 2.2, roughness: 0.2 })
+  const core = add('core', new THREE.Mesh(new THREE.IcosahedronGeometry(1.15, 1), coreM)); core.position.set(0, 11.2, -3.2)
+  const frame = add('body', new THREE.Mesh(new THREE.TorusGeometry(1.55, 0.22, 8, 24), plate)); frame.position.set(0, 11.2, -3.2); frame.rotation.x = Math.PI / 2 - 0.4
+  // 腕砲
+  const arms = {}
+  for (const [key, sx] of [['armL', -1], ['armR', 1]]) {
+    const ag = new THREE.Group(); ag.position.set(sx * 4.6, 7.6, 1.6); body.add(ag)
+    const am = mkMat(key, '#646d79', { roughness: 0.38, metalness: 0.6 })
+    add(key, new THREE.Mesh(new THREE.SphereGeometry(1.4, 16, 12), am), ag)
+    const barrel = add(key, new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.7, 4.2, 12), am), ag); barrel.rotation.x = Math.PI / 2; barrel.position.z = 2
+    const ring = add(key, new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.12, 6, 18), mkMat(key, '#1a1d22', { emissive: '#ff6a2a', emissiveIntensity: 1.2 })), ag); ring.position.z = 3.6
+    const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.75, 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff7a3a').multiplyScalar(2), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }))
+    muzzle.position.z = 4.3; ag.add(muzzle)
+    arms[key] = { g: ag, muzzle, warn: 0 }
+  }
+  // 脚: 腰（胴の下）→膝→足。膝が当たり判定の位置
+  const legs = {}
+  for (const [key, sx, sz] of [['legFL', -1, 1], ['legFR', 1, 1], ['legBL', -1, -1], ['legBR', 1, -1]]) {
+    const lg = new THREE.Group(); lg.position.set(sx * 2.6, 6.6, sz * 2.4); g.add(lg)
+    const lm = mkMat(key, '#535b66', { roughness: 0.42, metalness: 0.55 }), lp = mkMat(key, '#8a929c', { roughness: 0.5, metalness: 0.45 })
+    const hip = [0, 0, 0], knee = [sx * 0.8, -4.2, sz * 0.8], foot = [sx * 0.8, -6.6, sz * 0.8]
+    add(key, strut(hip, knee, 1.05, lm), lg)
+    add(key, strut(knee, foot, 0.85, lm), lg)
+    const thigh = add(key, new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.6, 1.7), lp), lg); thigh.position.set(sx * 0.45, -1.9, sz * 0.45); thigh.rotation.set(-sz * 0.18, 0, sx * 0.18)
+    const k = add(key, new THREE.Mesh(new THREE.SphereGeometry(1.25, 14, 10), lm), lg); k.position.set(...knee)
+    const pad = add(key, new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.5, 0.5, 12), mkMat(key, '#22262c')), lg); pad.position.set(foot[0], foot[1] + 0.25, foot[2])
+    const kneeGlow = add(key, new THREE.Mesh(new THREE.TorusGeometry(1.02, 0.06, 6, 20), mkMat(key, '#1a1d22', { emissive: '#ff6a2a', emissiveIntensity: 1.2 })), lg); kneeGlow.position.set(...knee); kneeGlow.rotation.y = Math.PI / 2
+    legs[key] = { g: lg, sx, sz }
+  }
+  const glow = new THREE.PointLight('#ff3d6e', 0, 26, 2) // 使い回す1灯（コアの照り返し）。最初から置いておく
+  glow.position.set(0, 11.2, -3.2); body.add(glow)
+  return { g, body, parts, arms, legs, core, coreM, eye, glow, lastX: 0, lastZ: 0, walk: 0 }
+}
+const gruntGeo = {
+  body: new THREE.BoxGeometry(0.62, 0.78, 0.38).translate(0, 1.12, 0),
+  head: new THREE.SphereGeometry(0.21, 10, 8).scale(1.05, 0.9, 1.1).translate(0, 1.72, 0),
+  visor: new THREE.BoxGeometry(0.3, 0.06, 0.08).translate(0, 1.74, 0.17),
+  leg: new THREE.BoxGeometry(0.2, 0.78, 0.22).translate(0, -0.39, 0),
+  arm: new THREE.BoxGeometry(0.16, 0.66, 0.16).translate(0, -0.3, 0),
+  blob: new THREE.PlaneGeometry(1.3, 1.3).rotateX(-Math.PI / 2),
+}
+const GRUNT_LOOK = { walker: ['#7a828e', 1], runner: ['#b59a6a', 0.88], brute: ['#4d5560', 1.38], gunner: ['#5f86a8', 1], bomber: ['#c0573f', 0.95] }
+function buildGruntsView() {
+  const N = G.FOE_MAX
+  const mk = (geo, mat) => { const m = new THREE.InstancedMesh(geo, mat, N); m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); m.frustumCulled = false; m.castShadow = geo !== gruntGeo.blob; m.count = 0; return m }
+  const solid = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.35 })
+  const o = {
+    body: mk(gruntGeo.body, solid), head: mk(gruntGeo.head, solid), legL: mk(gruntGeo.leg, solid), legR: mk(gruntGeo.leg, solid), armL: mk(gruntGeo.arm, solid), armR: mk(gruntGeo.arm, solid),
+    visor: mk(gruntGeo.visor, new THREE.MeshBasicMaterial({ toneMapped: false })),
+    blob: mk(gruntGeo.blob, blobMat),
+  }
+  for (const k in o) { o[k].renderOrder = k === 'blob' ? 1 : 0; pve.root.add(o[k]) }
+  return o
+}
+function buildBaseView() {
+  const g = new THREE.Group(), B = G.DEF_BASE
+  g.position.set(B.x, 0, B.z)
+  const metal = stdM('#cfd6de', { roughness: 0.35, metalness: 0.6 }), dark = stdM('#28303a')
+  const foot = new THREE.Mesh(new THREE.CylinderGeometry(3.6, 4.2, 1.2, 6), dark); foot.position.y = 0.6
+  const tower = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 2.6, 7, 6), metal); tower.position.y = 4.6
+  const coreM = new THREE.MeshStandardMaterial({ color: '#0c2a48', emissive: '#3d8bff', emissiveIntensity: 2.2, roughness: 0.2 })
+  const core = new THREE.Mesh(new THREE.OctahedronGeometry(1.3, 0), coreM); core.position.y = 9.4
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(2.4, 0.1, 6, 40), new THREE.MeshBasicMaterial({ color: new THREE.Color('#7fb4ff').multiplyScalar(1.5), toneMapped: false })); ring.position.y = 9.4; ring.rotation.x = Math.PI / 2
+  for (const m of [foot, tower, core]) { m.castShadow = true; m.receiveShadow = true }
+  g.add(foot, tower, core, ring)
+  return { g, core, coreM, ring, hit: 0 }
+}
+// 予兆: 踏みつけは足元の赤い輪、光線は地面の赤い帯
+const teleRingGeo = new THREE.RingGeometry(0.93, 1, 64).rotateX(-Math.PI / 2), teleDiscGeo = new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2), teleBandGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)
+function addTele(ev) {
+  const red = new THREE.Color('#ff3b3b').multiplyScalar(1.4)
+  const mat = op => new THREE.MeshBasicMaterial({ color: red, transparent: true, opacity: op, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide })
+  const grp = new THREE.Group()
+  if (ev.kind === 'stomp') {
+    const ring = new THREE.Mesh(teleRingGeo, mat(0.9)), disc = new THREE.Mesh(teleDiscGeo, mat(0.18))
+    ring.scale.setScalar(ev.r); disc.scale.setScalar(0.01)
+    grp.add(ring, disc); grp.position.set(ev.x, 0.08, ev.z)
+    pve.teles.push({ grp, t: 0, dur: ev.dur, kind: 'stomp', disc, r: ev.r })
+  } else {
+    const dx = ev.ex - ev.x, dz = ev.ez - ev.z, len = Math.hypot(dx, dz)
+    const band = new THREE.Mesh(teleBandGeo, mat(0.35)); band.scale.set(3.2, 1, len)
+    band.position.set((ev.x + ev.ex) / 2, 0.1, (ev.z + ev.ez) / 2); band.rotation.y = Math.atan2(dx, dz)
+    grp.add(band)
+    pve.teles.push({ grp, t: 0, dur: ev.dur + 0.5, kind: 'beam', band })
+  }
+  scene.add(grp)
+}
+function stepTeles(dt) {
+  for (let i = pve.teles.length - 1; i >= 0; i--) {
+    const T = pve.teles[i]
+    T.t += dt
+    const k = Math.min(1, T.t / T.dur), blink = 0.55 + 0.45 * Math.sin(T.t * (8 + k * 18))
+    if (T.kind === 'wave') { T.grp.scale.setScalar(1 + k * 14); T.grp.material.opacity = 0.9 * (1 - k) }
+    else if (T.kind === 'stomp') { T.disc.scale.setScalar(Math.max(0.01, T.r * k)); T.disc.material.opacity = 0.12 + 0.2 * k; T.grp.children[0].material.opacity = 0.9 * blink }
+    else T.band.material.opacity = 0.18 + 0.35 * blink * (T.t < T.dur - 0.5 ? 1 : Math.max(0, 1 - (T.t - T.dur + 0.5) * 4))
+    if (T.t >= T.dur) { scene.remove(T.grp); T.grp.traverse(o => o.material && o.material.dispose()); pve.teles.splice(i, 1) }
+  }
+}
+function clearPveView() {
+  if (pve.root) { scene.remove(pve.root); pve.root.traverse(o => { if (o.geometry && !Object.values(gruntGeo).includes(o.geometry)) o.geometry.dispose() }) }
+  for (const T of pve.teles) scene.remove(T.grp)
+  pve.root = pve.boss = pve.grunts = pve.base = null; pve.teles.length = 0; pve.shownWave = 0
+}
+function setupPveView(st) {
+  clearPveView()
+  if (st.mode === 'pvp') return
+  pve.root = new THREE.Group(); scene.add(pve.root)
+  if (st.mode === 'boss') { pve.boss = buildBossView(); pve.root.add(pve.boss.g) }
+  else { pve.grunts = buildGruntsView(); pve.base = buildBaseView(); pve.root.add(pve.base.g) }
+}
+const gD = new THREE.Object3D(), gC = new THREE.Color(), gW = new THREE.Color('#ffffff')
+function drawPve(st, dt) {
+  if (!pve.root || !st) return
+  const t = performance.now() / 1000
+  if (pve.boss && st.boss) {
+    const B = st.boss, V = pve.boss
+    const moved = Math.hypot(B.x - V.lastX, B.z - V.lastZ); V.lastX = B.x; V.lastZ = B.z
+    V.walk += moved * 0.9
+    V.g.position.set(B.x, -B.kneel * 0.75, B.z)
+    V.g.rotation.y = B.yaw
+    V.body.position.y = Math.sin(V.walk * 2) * 0.18 * Math.min(1, moved * 30)
+    V.body.rotation.x = B.kneel * 0.06
+    for (const L of Object.values(V.legs)) L.g.rotation.x = Math.sin(V.walk + (L.sx * L.sz > 0 ? 0 : Math.PI)) * 0.22 * Math.min(1, moved * 30)
+    for (const p of B.parts) {
+      const P = V.parts[p.key]
+      if (!P) continue
+      if (p.broken && P.meshes[0].visible) for (const m of P.meshes) m.visible = false
+      P.flash = Math.max(0, P.flash - dt)
+      for (const m of P.mats) { m.emissive.copy(m.userData.base); m.emissiveIntensity = m.userData.baseI; if (P.flash > 0) { m.emissive.set('#ffffff'); m.emissiveIntensity = 0.9 * P.flash / 0.12 } }
+    }
+    // コアは脈打つ。膝をついている間はいっそう強く光る（狙い時）
+    const pulse = 0.5 + 0.5 * Math.sin(t * (B.stagger > 0 ? 9 : 3))
+    if (V.parts.core.flash <= 0) V.coreM.emissiveIntensity = (B.stagger > 0 ? 4.5 : 2) + pulse * 1.5
+    V.core.scale.setScalar(1 + pulse * (B.stagger > 0 ? 0.25 : 0.08))
+    V.glow.intensity = B.hp > 0 ? (B.stagger > 0 ? 40 : 12) * (0.6 + pulse * 0.4) : 0
+    for (const k of ['armL', 'armR']) { const a = V.arms[k]; a.warn = Math.max(0, a.warn - dt); a.muzzle.material.opacity = a.warn > 0 ? 0.5 + 0.5 * Math.sin(t * 40) : 0; a.muzzle.scale.setScalar(1 + (0.6 - a.warn) * 1.5) }
+  }
+  if (pve.grunts) {
+    const o = pve.grunts
+    let n = 0
+    const cam = camera.position
+    for (const f of st.foes) {
+      if (!f.alive || n >= G.FOE_MAX) continue
+      const L = GRUNT_LOOK[f.kind] || GRUNT_LOOK.walker, s = L[1]
+      const far = Math.hypot(f.x - cam.x, f.z - cam.z) > 90 // 遠くは手足を省く
+      const sp = Math.hypot(f.vx, f.vz), ph = (st.t * 7 + f.id) * (0.6 + sp * 0.12)
+      gD.position.set(f.x, f.y + Math.abs(Math.sin(ph)) * 0.06 * Math.min(1, sp), f.z)
+      gD.rotation.set(Math.min(0.25, sp * 0.03), f.yaw, 0); gD.scale.setScalar(s); gD.updateMatrix()
+      o.body.setMatrixAt(n, gD.matrix); o.head.setMatrixAt(n, gD.matrix); o.visor.setMatrixAt(n, gD.matrix)
+      const hurt = f.hurtT >= 0
+      gC.set(L[0]); if (hurt) gC.lerp(gW, 0.7)
+      o.body.setColorAt(n, gC); o.head.setColorAt(n, gC)
+      o.visor.setColorAt(n, gC.set(f.kind === 'bomber' ? '#ffb040' : '#ff3a3a').multiplyScalar(f.kind === 'bomber' ? 1.5 + Math.sin(st.t * 12) : 1.6))
+      const swing = Math.sin(ph) * 0.7 * Math.min(1, sp / 3)
+      const limb = (mesh, x, y, rot) => {
+        if (far) { gD.scale.setScalar(0); gD.updateMatrix(); mesh.setMatrixAt(n, gD.matrix); gD.scale.setScalar(s); return }
+        const c = Math.cos(f.yaw), si = Math.sin(f.yaw)
+        gD.position.set(f.x + (x * c) * s, f.y + y * s, f.z - (x * si) * s); gD.rotation.set(rot, f.yaw, 0); gD.updateMatrix()
+        mesh.setMatrixAt(n, gD.matrix); mesh.setColorAt(n, hurt ? gW : gC.set(L[0]).multiplyScalar(0.8))
+      }
+      limb(o.legL, -0.17, 0.78, swing); limb(o.legR, 0.17, 0.78, -swing)
+      const atk = f.bladeT >= 0 ? -1.6 : f.kind === 'gunner' && f.targetId >= 0 ? -1.4 : 0
+      limb(o.armL, -0.42, 1.48, -swing * 0.8 + atk * 0.5); limb(o.armR, 0.42, 1.48, swing * 0.8 + atk)
+      gD.position.set(f.x, f.y + 0.03, f.z); gD.rotation.set(0, 0, 0); gD.scale.setScalar(s * 0.9); gD.updateMatrix(); o.blob.setMatrixAt(n, gD.matrix)
+      n++
+    }
+    for (const k in o) { o[k].count = n; o[k].instanceMatrix.needsUpdate = true; if (o[k].instanceColor) o[k].instanceColor.needsUpdate = true }
+  }
+  if (pve.base && st.def) {
+    const b = pve.base, r = st.def.base.hp / st.def.base.max
+    b.hit = Math.max(0, b.hit - dt)
+    b.core.rotation.y += dt * 1.2; b.core.position.y = 9.4 + Math.sin(t * 2) * 0.25
+    b.coreM.emissive.set(r < 0.3 ? '#ff4040' : '#3d8bff'); b.coreM.emissiveIntensity = 2 + (b.hit > 0 ? 4 : 0)
+    b.ring.rotation.z += dt * 0.6; b.ring.scale.setScalar(1 + Math.sin(t * 2) * 0.05)
+  }
+  stepTeles(dt)
+}
+function pveEvent(ev, st) {
+  const V = pve.boss
+  const k = ev.x !== undefined ? vol(ev.x, ev.z) : 1
+  switch (ev.type) {
+    case 'fhit': {
+      const f = G.uid(st, ev.id), src = st.units[ev.src]
+      if (V && f && f.boss) { const P = V.parts[f.part.key]; if (P) P.flash = 0.12 }
+      if (src && src.player) popDamage({ ...ev, amount: ev.amount })
+      if (ev.weak) { spark(ev.x, ev.y, ev.z, 16, '#ff9ab8', 9, 0.1, 2, 4, 0.35); hitRing(ev.x, ev.y, ev.z, '#ffd0de', 1.4) }
+      else if (ev.kind === 'blade') { spark(ev.x, ev.y, ev.z, 14, '#ffd08a', 8, 0.09, 2, 6, 0.28); hitRing(ev.x, ev.y, ev.z, '#ffe2b0', 0.6) }
+      else spark(ev.x, ev.y, ev.z, ev.kind === 'snipe' ? 18 : 4, '#ffd08a', 6, 0.07, 1, 6, 0.2)
+      if (src && src.player && (ev.kind === 'blade' || ev.kind === 'snipe')) { hitstop = Math.max(hitstop, 3); shake = Math.max(shake, 0.4) }
+      if (src && src.player) SFX.hitBullet(1)
+      break
+    }
+    case 'fdown': {
+      if (ev.how === 'base') break
+      burst(ev.x, ev.y + 1, ev.z, ev.kind === 'brute' ? 18 : 8, '#5a6170', 5, 0.14, 3, 9, 0.6)
+      spark(ev.x, ev.y + 1, ev.z, ev.kind === 'brute' ? 26 : 12, '#ff6a4a', 7, 0.09, 2, 6, 0.35)
+      if (ev.src >= 0 && st.units[ev.src] && st.units[ev.src].player) SFX.hitBlade(0.5)
+      break
+    }
+    case 'partBreak': {
+      burst(ev.x, ev.y, ev.z, 36, '#3a3f48', 9, 0.3, 5, 9, 1.2)
+      spark(ev.x, ev.y, ev.z, 60, '#ff8a3a', 14, 0.14, 4, 6, 0.7)
+      hitRing(ev.x, ev.y, ev.z, '#ffb070', 3)
+      SFX.boom(Math.max(0.5, k)); shake = Math.max(shake, 1.1); hitstop = Math.max(hitstop, 5)
+      call(`${ev.name}を破壊`)
+      break
+    }
+    case 'stagger': banner('膝をついた', 'いまコアが無防備。背中を狙え', 'var(--signal)'); call('膝をついた。コアを狙え'); break
+    case 'bossPhase': if (ev.phase === 2) { banner('第2段階', '光線が来る。地面の赤い帯から離れる', 'var(--red)'); call('光線に注意') } else { banner('第3段階', '動きが速くなった', 'var(--red)'); call('暴れ出した') } break
+    case 'bossWarn': if (V) V.arms[ev.key].warn = 0.6; break
+    case 'bossShot': SFX.shoot(Math.max(0.5, k), 'launcher'); spark(ev.x, ev.y, ev.z, 10, '#ffb070', 5, 0.1, 1, 0, 0.2); break
+    case 'tele': addTele(ev); if (ev.kind === 'stomp') SFX.charge(Math.max(0.5, k), 1.2); else SFX.charge(1, 1.6); break
+    case 'stomp': {
+      burst(ev.x, 0.3, ev.z, 40, '#cfd3d8', 10, 0.2, 2, 6, 0.8)
+      spark(ev.x, 0.5, ev.z, 30, '#ff8a3a', 12, 0.1, 1, 4, 0.4)
+      const w = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 64).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffd0a0', transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide }))
+      w.position.set(ev.x, 0.15, ev.z); scene.add(w)
+      pve.teles.push({ grp: w, t: 0, dur: 0.5, kind: 'wave' })
+      SFX.boom(Math.max(0.6, k)); shake = Math.max(shake, 1.4)
+      break
+    }
+    case 'beam': spawnBeam(ev.x, ev.y, ev.z, ev.hx, ev.hy, ev.hz, 1, 1, 4, '#ff3b4f'); spark(ev.hx, ev.hy, ev.hz, 30, '#ff7a6a', 10, 0.12, 3, 5, 0.5); SFX.snipe(1, 'ibis'); shake = Math.max(shake, 0.9); break
+    case 'bossDown': {
+      for (let i = 0; i < 4; i++) setTimeout(() => { const x = ev.x + (Math.random() - 0.5) * 8, z = ev.z + (Math.random() - 0.5) * 8; burst(x, 6, z, 40, '#3a3f48', 10, 0.35, 6, 9, 1.4); spark(x, 7, z, 70, '#ff8a3a', 16, 0.16, 5, 6, 0.9); SFX.boom(1) }, i * 260)
+      shake = 2; hitstop = 8
+      if (V) V.g.visible = false
+      break
+    }
+    case 'wave': banner(`WAVE ${ev.n}`, ev.n === G.DEF_WAVES ? '最後の波。守り切れば勝ち' : `${ev.count}体が来る`, 'var(--red)'); call(`ウェーブ${ev.n}　${ev.count}体`); break
+    case 'waveClear': if (ev.n < G.DEF_WAVES) call(`ウェーブ${ev.n}をしのいだ`); break
+    case 'baseHit': if (pve.base) pve.base.hit = 0.3; spark(ev.x, 2, ev.z, 14, '#7fb4ff', 7, 0.1, 2, 6, 0.3); if (ev.hp < 30 && !callState.baseLow) { callState.baseLow = true; call('基地が危ない') } break
+    case 'fshoot': if (k > 0.3) SFX.shoot(k * 0.5, 'handgun'); break
+  }
 }
 
 function handleEvents(events) {
@@ -2036,7 +2362,7 @@ function handleEvents(events) {
         break
       }
       case 'hit': {
-        const src = st.units[ev.src]
+        const src = G.uid(st, ev.src)
         if (!callState.first) { callState.first = true; call('両隊が接触。戦闘が始まりました') }
         if (src && src.player && u.team !== src.team) popDamage(ev)
         // 傷から飛び散るものは青
@@ -2093,7 +2419,7 @@ function handleEvents(events) {
         }
         feed(`<svg><use href="#i-out"/></svg><span class="t${u.team}">${nameOf(u)}</span>強制帰還${killer ? `<span class="by">${nameOf(killer)}</span>` : ''}`)
         if (u.player) {
-          banner('強制帰還', killer && killer.team !== u.team ? `${killer.name}の${(TRIG_INFO[ev.how] || {}).name || '攻撃'}で倒された ・ ${G.respawnT(u)}秒後に再出撃` : `${G.respawnT(u)}秒後に再出撃`, 'var(--red)')
+          banner('強制帰還', killer && killer.team !== u.team ? `${killer.name}の${(TRIG_INFO[ev.how] || {}).name || '攻撃'}で倒された ・ ${G.respawnDelay(st, u)}秒後に再出撃` : `${G.respawnDelay(st, u)}秒後に再出撃`, 'var(--red)')
           $('touch').hidden = true
           $('dock').hidden = true
           $('me').hidden = true
@@ -2122,9 +2448,10 @@ function handleEvents(events) {
         $('spectate').hidden = true
         $('dock').hidden = true
         const win = ev.winner === 0
-        banner(ev.winner === -1 ? '引き分け' : win ? '勝利' : '敗北', ev.reason === 'overtime' ? '延長戦で決着' : 'タイムアップ', win ? 'var(--blue)' : ev.winner === 1 ? 'var(--red)' : null)
+        banner(ev.winner === -1 ? '引き分け' : win ? (st.mode === 'pvp' ? '勝利' : '作戦成功') : (st.mode === 'pvp' ? '敗北' : '作戦失敗'), PVE_REASON[ev.reason] || (ev.reason === 'overtime' ? '延長戦で決着' : 'タイムアップ'), win ? 'var(--blue)' : ev.winner === 1 ? 'var(--red)' : null)
         if (win) SFX.win(); else SFX.lose()
-        call(ev.winner === -1 ? `${st.score[0]}対${st.score[1]}、引き分けで試合終了` : `${st.score[0]}対${st.score[1]}、${ev.winner === 0 ? '自隊' : '敵隊'}の勝利です`)
+        if (st.mode === 'pvp') call(ev.winner === -1 ? `${st.score[0]}対${st.score[1]}、引き分けで試合終了` : `${st.score[0]}対${st.score[1]}、${ev.winner === 0 ? '自隊' : '敵隊'}の勝利です`)
+        else call(win ? '作戦成功。おつかれさまでした' : PVE_REASON[ev.reason] || '作戦失敗')
         if (pointerLocked) document.exitPointerLock()
         for (const x of st.units) {
           if (!x.alive) continue
@@ -2132,17 +2459,52 @@ function handleEvents(events) {
         }
         break
       }
+      default: pveEvent(ev, st)
     }
   }
 }
 
+let shareText = ''
+// 協力の結果: 評価（S〜C）と、撃破・被害・時間
+function pveGrade(st) {
+  const deaths = st.units.reduce((a, u) => a + u.deaths, 0)
+  if (st.winner !== 0) return 'C'
+  let pts = 0
+  if (st.mode === 'boss') { pts += st.t < 200 ? 2 : st.t < 290 ? 1 : 0; pts += deaths <= 6 ? 2 : deaths <= 12 ? 1 : 0 }
+  else { const r = st.def.base.hp / st.def.base.max; pts += r > 0.7 ? 2 : r > 0.35 ? 1 : 0; pts += deaths <= 6 ? 2 : deaths <= 12 ? 1 : 0 }
+  return pts >= 4 ? 'S' : pts >= 2 ? 'A' : 'B'
+}
+function showPveResult(st) {
+  const me = st.units.find(u => u.player), deaths = st.units.reduce((a, u) => a + u.deaths, 0), grade = pveGrade(st)
+  const P = PVE_INFO[st.mode]
+  $('resSub').textContent = `${P.name}　${PVE_REASON[st.endReason] || ''}`
+  $('resS0').textContent = grade
+  $('resS1').textContent = fmtTime(st.t)
+  const rows = st.mode === 'boss'
+    ? [['大型の敵の体力', `${Math.round(st.boss.hp / st.boss.maxHp * 100)}%`], ['壊した部位', `${st.boss.parts.filter(p => p.broken).length} / 6`], ['あなたが与えた分', `${Math.round(st.boss.dmgBy[me.id] || 0)}`], ['味方の強制帰還', `${deaths}回`]]
+    : [['到達したウェーブ', `${st.def.wave} / ${G.DEF_WAVES}`], ['基地の耐久', `${Math.round(st.def.base.hp / st.def.base.max * 100)}%`], ['隊の撃破', `${st.score[0]}体（あなた ${me.kills}）`], ['味方の強制帰還', `${deaths}回`]]
+  $('resT0').innerHTML = rows.map(([k, v]) => `<div class="r-row plate"><span>${k}</span><span class="k">${v}</span></div>`).join('')
+  $('resT1').innerHTML = st.units.map(u => `<div class="r-row plate${u.player ? ' me' : ''}"><span>${nameOf(u)}</span><span class="k">${st.mode === 'boss' ? Math.round(st.boss.dmgBy[u.id] || 0) : u.kills}<small>${st.mode === 'boss' ? '与えた' : '撃破'}</small></span><span class="st">${u.deaths}回 脱出</span></div>`).join('')
+  const gain = 20 + (st.mode === 'boss' ? Math.round((st.boss.dmgBy[me.id] || 0) / 60) : me.kills * 3) + (st.winner === 0 ? 40 : 0), lv0 = levelOf(myXp)
+  myXp += gain; save('ts-xp', myXp)
+  const lv1 = levelOf(myXp)
+  $('resNote').textContent = `評価 ${grade}　+${gain} XP` + (lv1 > lv0 ? `　Lv.${lv1} に上がった` : '')
+  renderStats()
+  shareText = `ギアスクワッド 協力「${P.name}」${st.winner === 0 ? '作戦成功' : '作戦失敗'}　評価${grade}　${fmtTime(st.t)}` + (st.mode === 'boss' ? `　部位破壊${st.boss.parts.filter(p => p.broken).length}` : `　WAVE ${st.def.wave}/${G.DEF_WAVES}・撃破${st.score[0]}`)
+  $('hud').hidden = true
+  $('result').hidden = false
+}
 function showResult() {
   mode = 'result'
   updateRotate()
   const st = state
   const head = $('resHead')
-  $('resTitle').textContent = st.winner === -1 ? '引き分け' : st.winner === 0 ? '勝利' : '敗北'
+  $('resTitle').textContent = st.winner === -1 ? '引き分け' : st.winner === 0 ? (st.mode === 'pvp' ? '勝利' : '作戦成功') : (st.mode === 'pvp' ? '敗北' : '作戦失敗')
   head.className = 'r-head ' + (st.winner === 0 ? 'win' : st.winner === 1 ? 'lose' : '')
+  $('result').classList.toggle('pve', st.mode !== 'pvp')
+  $('resMid').textContent = st.mode === 'pvp' ? 'FINAL' : '評価 / 時間'
+  shareText = st.mode === 'pvp' ? `ギアスクワッドで${st.winner === 0 ? '勝利' : st.winner === 1 ? '敗北' : '引き分け'}　${st.score[0]}対${st.score[1]}` : ''
+  if (st.mode !== 'pvp') { showPveResult(st); return }
   $('resSub').textContent = `${st.endReason === 'overtime' ? '延長戦で決着' : 'タイムアップ'}　試合時間 ${fmtTime(st.t)}`
   $('resS0').textContent = st.score[0]
   $('resS1').textContent = st.score[1]
@@ -2186,6 +2548,7 @@ function fixedStep() {
   }
   if (mode === 'title' && titleUnits) for (const u of titleUnits) stepUnitView(dt, u, units[u.id], false)
   stepFx(dt)
+  drawPve(state, dt)
   stepBailFx(dt)
   stepBeams(dt)
   stepDamagePops(dt)
@@ -2269,7 +2632,12 @@ function resize() {
 addEventListener('resize', resize)
 resize()
 
-$('startBtn').addEventListener('click', startGame)
+$('startBtn').addEventListener('click', () => { pveMode = null; startGame() })
+for (const b of document.querySelectorAll('[data-pve]')) b.addEventListener('click', () => { pveMode = b.dataset.pve; closeSheets(); startGame() })
+$('shareBtn').addEventListener('click', () => {
+  const url = 'https://tmk4men.github.io/gear-squad/'
+  window.open(`https://x.com/intent/post?text=${encodeURIComponent(shareText + ' #ギアスクワッド')}&url=${encodeURIComponent(url)}`, '_blank', 'noopener')
+})
 // ================================================================ ホーム（出撃・編成・ステージ・操作）
 // ギアは4つまで。近接・銃・狙撃は1つずつ。攻撃用は試合中に武器スロットで持ち替え、補助は専用のボタン
 const TRIG_INFO = {
@@ -2471,8 +2839,10 @@ window.ts = {
     opts = opts || {}
     if (opts.loadout) setTriggers(opts.loadout === 'sniper' ? PRESETS.sniper : PRESETS.allround)
     if (opts.triggers) setTriggers(opts.triggers)
+    pveMode = opts.mode || null
     window.__tsOpts = {}; window.__tsNoHint = true; startGame()
   },
+  pve() { return state && state.mode !== 'pvp' ? { mode: state.mode, boss: state.boss && { hp: state.boss.hp, x: state.boss.x, z: state.boss.z, phase: state.boss.phase, stagger: state.boss.stagger }, def: state.def && { wave: state.def.wave, base: state.def.base.hp }, foes: state.foes.filter(f => f.alive).length } : null },
   look(yaw, pitch = camPitch) { camYaw = yaw; camPitch = pitch },
   turn(dx, dy = 0) { turnCamera(dx, dy) },
   // 入力を与えて n ステップ同期で進め、1枚描く。mx/mz は画面基準（mz=-1 が前）

@@ -848,5 +848,59 @@ const mallSt = seed => { const st = G.createState(seed, { spawn: 'fixed', stage:
   ok(hit > 0 && miss === 0, '230m先の相手に当たり、250m先には届かない', `230m=${hit.toFixed(1)} 250m=${miss.toFixed(1)}`)
   ok(hit < G.SNIPERS.snipe.dmax * 0.85, '遠い狙撃は威力が落ちる（120mより先）', `230m=${hit.toFixed(1)} / 満額${G.SNIPERS.snipe.dmax}`)
 }
+{ // 協力: 自分＋CPU5人。役割が偏らない
+  const st = G.createState(9500, { mode: 'boss' })
+  const slots = st.units.filter(u => !u.player).map(u => u.slot)
+  ok(st.units.length === 6 && st.units.every(u => u.team === 0), '協力は6人とも味方', `${st.units.length}人`)
+  ok(['front', 'mid', 'sniper', 'disrupt'].every(k => slots.includes(k)) && new Set(st.units.filter(u => !u.player).map(u => u.style)).size === 5, '味方5人に前衛・中衛・狙撃・かく乱がそろい、型は重ならない', slots.join(','))
+  ok(st.stage === 'city', '協力の舞台は市街地')
+}
+{ // 大型の敵: 弱点は胴より大きく入る。脚を2本壊すと膝をつく
+  const st = G.createState(9501, { mode: 'boss' }); const me = st.units[0], B = st.boss
+  const core = B.parts.find(p => p.key === 'core').foe, body = B.parts.find(p => p.key === 'body').foe
+  const hp0 = B.hp; G.damageFoe(st, body, 10, me); const dBody = hp0 - B.hp
+  const hp1 = B.hp; G.damageFoe(st, core, 10, me); const dCore = hp1 - B.hp
+  ok(dCore > dBody * 4, 'コアは胴の何倍も削れる', `胴=${dBody.toFixed(1)} コア=${dCore.toFixed(1)}`)
+  for (const k of ['legFL', 'legFR']) { const p = B.parts.find(q => q.key === k); G.damageFoe(st, p.foe, p.maxHp + 1, me) }
+  ok(B.legsBroken === 2 && B.stagger > 0, '脚を2本壊すと膝をつく', `折れた脚=${B.legsBroken} 膝=${B.stagger.toFixed(1)}`)
+  const hp2 = B.hp; G.damageFoe(st, core, 10, me)
+  ok(hp2 - B.hp > dCore * 1.5, '膝をついている間はコアにさらに入る', `${(hp2 - B.hp).toFixed(1)}`)
+  const arm = B.parts.find(p => p.key === 'armL'); G.damageFoe(st, arm.foe, arm.maxHp + 1, me)
+  ok(arm.broken && !arm.foe.alive, '腕砲は壊せる（壊れたら狙えない）')
+}
+{ // 大型の敵: 踏みつけは予兆（輪）のあとに当たり、跳んでいればかわせる
+  const st = G.createState(9502, { mode: 'boss' }); const B = st.boss
+  st.units.forEach((u, i) => { if (i > 1) { u.alive = false; u.outT = -1e9 } })
+  const [a, b] = st.units
+  for (const u of [a, b]) u.ai.think = 1e9
+  put(a, B.x + 6, B.z); put(b, B.x - 7, B.z)
+  B.cd.armL = B.cd.armR = B.cd.beam = 99; B.cd.stomp = 0
+  let tele = false, hitA = 100
+  for (let i = 0; i < 200; i++) { G.step(st, {}); for (const e of G.drainEvents(st)) if (e.type === 'tele' && e.kind === 'stomp') tele = true; if (i === 100) { b.vy = 12; b.grounded = false; b.y = 3 } ; if (b.y > 0.1) b.vy = Math.max(b.vy, 0) }
+  ok(tele && a.en < a.maxEn, '踏みつけは赤い輪の予兆のあと、足元の人に当たる', `予兆=${tele} EN=${a.en.toFixed(0)}`)
+}
+{ // 防衛: ウェーブが進むほど数と種類が増える。基地に着いた敵は耐久を削る
+  const w1 = G.waveList(1), w6 = G.waveList(6)
+  ok(w6.length > w1.length * 2 && new Set(w6).size === 5 && new Set(w1).size === 1, 'ウェーブ6はウェーブ1より多く、5種類まざる', `${w1.length}体→${w6.length}体 ${[...new Set(w6)].join(',')}`)
+  const st = G.createState(9503, { mode: 'defense' })
+  st.units.forEach((u, i) => { put(u, -150, 40 + i * 3); u.ai.think = 1e9; u.ai.targetId = -1 }) // 全員を西の端で待たせる
+  st.def.breakT = 0.01
+  let reached = false
+  for (let i = 0; i < 60 * 120 && st.phase === 'play'; i++) { G.step(st, {}); st.units.forEach((u, k) => put(u, -150, 40 + k * 3)); for (const e of G.drainEvents(st)) if (e.type === 'baseHit') reached = true; if (st.foes.filter(f => f.alive).length > G.FOE_MAX) { reached = 'over'; break } }
+  ok(reached === true && st.def.base.hp < G.BASE_HP, '誰も守らなければ敵が基地に着いて耐久が減る', `耐久=${st.def.base.hp}`)
+}
+// 協力の通し: CPU だけで最後まで回り、勝ち負けが出て、NaN・めり込みが無い
+for (const mode of ['boss', 'defense']) for (const seed of [9600, 9601]) {
+  const st = G.createState(seed, { mode, autoplay: true })
+  let s = 0, nan = 0, stuck = 0, foesMax = 0
+  while (st.phase === 'play' && s < 60 * 900) {
+    G.step(st, {}); G.drainEvents(st); s++
+    if (s % 20) continue
+    foesMax = Math.max(foesMax, st.foes.filter(f => f.alive).length)
+    for (const u of st.units) { if (![u.x, u.y, u.z, u.en].every(Number.isFinite)) nan++; if (u.alive) for (const b of st.blocks) if (!b.y0 && u.y < b.h - 0.4 && Math.abs(u.x - b.x) < b.w / 2 - 0.05 && Math.abs(u.z - b.z) < b.d / 2 - 0.05) stuck++ }
+    for (const f of st.foes) if (![f.x, f.y, f.z].every(Number.isFinite)) nan++
+  }
+  ok(st.phase === 'over' && (st.winner === 0 || st.winner === 1) && !nan && !stuck && foesMax <= G.FOE_MAX, `協力「${mode}」をCPUだけで最後まで回せる（seed ${seed}）`, `勝者=${st.winner} 理由=${st.endReason} ${st.t.toFixed(0)}秒 NaN=${nan} めり込み=${stuck} 敵最大=${foesMax}`)
+}
 console.log(`\n${pass} OK / ${fail} FAIL`)
 process.exit(fail ? 1 : 0)

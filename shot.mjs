@@ -25,7 +25,33 @@ const wx = process.argv.find(a => ['storm', 'snow', 'clear'].includes(a))
 for (const sg of ['harbor', 'mall']) if (process.argv.includes(sg)) { await page.evaluate(k => document.querySelector(`.sg[data-s="${k}"]`).click(), sg); await page.waitForTimeout(1500) }
 if (wx) await page.evaluate(w => document.querySelector(`.wx[data-w="${w}"]`).click(), wx)
 if (scene !== 'title') {
-  await page.evaluate(sn => { ts.pause(true); ts.start(sn ? { loadout: 'sniper' } : {}) }, scene.startsWith('snipe'))
+  const pveMode = ['boss', 'defense'].find(k => scene.startsWith(k))
+  await page.evaluate(([sn, pm]) => { ts.pause(true); ts.start(pm ? { mode: pm } : sn ? { loadout: 'sniper' } : {}) }, [scene.startsWith('snipe'), pveMode])
+  // 協力の山場: CPU 任せで進めてから、自機を敵の見える所へ置く
+  if (pveMode) await page.evaluate(([sc]) => {
+    window.__tsNoAuto = false
+    const st = ts.raw()
+    st.units[0].shieldT = 1e9 // 撮るまで自機は倒れない
+    const secs = sc.endsWith('-late') ? 150 : 40
+    for (let i = 0; i < secs; i++) { ts.run(60, {}) }
+    const me = st.units[0]
+    st.units[0].shieldT = 0
+    if (st.boss) {
+      // 大通りの上で、大型の敵が見通せる向きから撮る
+      const B = st.boss, inBlk = (x, z) => st.blocks.some(k => Math.abs(x - k.x) < k.w / 2 + 1 && Math.abs(z - k.z) < k.d / 2 + 1)
+      let best = [0, 1]
+      for (const [dx, dz] of [[Math.sin(B.yaw), Math.cos(B.yaw)], [0, 1], [0, -1], [1, 0], [-1, 0]]) { let ok = true; for (let r = 6; r <= 26; r += 2) if (inBlk(B.x + dx * r, B.z + dz * r)) ok = false; if (ok) { best = [dx, dz]; break } }
+      const px = B.x + best[0] * 30, pz = B.z + best[1] * 30, yaw = Math.atan2(B.x - px, B.z - pz)
+      ts.place(0, px, pz, { yaw }); ts.look(yaw, 0.55)
+    }
+    else {
+      // 一番前に出ている敵の群れの手前（南）に立って北を見る
+      const fs = st.foes.filter(f => f.alive).sort((a, b) => b.z - a.z)
+      const f = fs[Math.min(fs.length - 1, 4)] || { x: 0, z: 60 }
+      ts.place(0, Math.round(f.x / 45) * 45, Math.min(130, f.z + 18), { yaw: Math.PI }); ts.look(Math.PI, 0.14)
+    }
+    ts.run(12, {})
+  }, [scene])
   await page.evaluate(() => ts.run(30))
   if (scene === 'fight') {
     await page.evaluate(() => { ts.place(0, 0, 4, { yaw: Math.PI }); ts.place(3, 0.6, 1.6, { yaw: 0 }); ts.place(5, -5, -6); ts.look(Math.PI, 0.16); ts.run(20, {}) })

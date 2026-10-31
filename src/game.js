@@ -33,6 +33,8 @@ export const RALLY_T = 5                             // 再起: 再出撃 8→5�
 export const PRECISE_HEAD = 1.3                      // 精密: 頭に当たると1.3倍（どの銃・狙撃でも）
 export const ADVERSITY_EN = 0.3, ADVERSITY_ATK = 1.2, ADVERSITY_SPD = 1.1 // 逆境: EN 3割未満で攻撃+20%・足+10%
 export const respawnT = u => u.sense === 'rally' ? RALLY_T : RESPAWN_T
+// 協力は再出撃まで少し長い（全員がいっぺんに倒れると負け）
+export const respawnDelay = (st, u) => st.mode === 'pvp' ? respawnT(u) : u.sense === 'rally' ? 7 : 10
 export const adverse = u => u.sense === 'adversity' && u.alive && u.en < u.maxEn * ADVERSITY_EN
 export const SPAWN_SHIELD = 2   // 再出撃直後に攻撃を受けない秒数
 export const OVERTIME_MAX = 60  // 同点で時間切れなら、次の撃破で決まる延長戦（最長60秒）
@@ -567,7 +569,11 @@ const ROSTER = [
 ]
 
 export function createState(seed = Date.now(), opts = {}) {
+  const pve = PVE_MODES.includes(opts.mode)
+  if (pve) opts = { ...opts, stage: 'city', spawn: undefined } // 協力は市街地で、自分＋CPU5人
   const st = {
+    mode: pve ? opts.mode : 'pvp',
+    foes: [], foeMap: new Map(), nextFoe: FOE_ID,
     rand: rng(seed),
     phase: 'play',          // play | over
     endReason: null,        // time | overtime
@@ -587,14 +593,14 @@ export function createState(seed = Date.now(), opts = {}) {
     autoplay: !!opts.autoplay,  // 自機もAIに任せる（検証・観戦用）
   }
   // 出撃位置: 既定は毎回ランダム。テストは固定（以前の位置）
-  const mine3 = opts.spawn === 'fixed' ? LEGACY_SPAWN : pickSpawns(st)
+  const mine3 = pve ? null : opts.spawn === 'fixed' ? LEGACY_SPAWN : pickSpawns(st)
   const myTrig = validTriggers(opts.triggers) || (opts.loadout === 'sniper' ? ['snipe', 'shoot', 'pad', 'bag'] : null)
   // CPU の型: 通常の試合は隊ごとに組み方を引く（自機の隊は自機の持ち場を除いた2人）
   const randomStyles = opts.spawn !== 'fixed'
-  const teamStyles = randomStyles ? [pickTeamStyles(st, 2, slotOfTrig(myTrig || ROLE_TRIGGERS.allround)), pickTeamStyles(st, 3)] : null
+  const teamStyles = pve ? [pickPveStyles(st, slotOfTrig(myTrig || ROLE_TRIGGERS.allround))] : randomStyles ? [pickTeamStyles(st, 2, slotOfTrig(myTrig || ROLE_TRIGGERS.allround)), pickTeamStyles(st, 3)] : null
   const styleQ = [0, 0]
-  ROSTER.forEach((r, i) => {
-    const sp = mine3[i % 3], sgn = r.team === 0 ? 1 : -1
+  ;(pve ? PVE_ROSTER : ROSTER).forEach((r, i) => {
+    const sp = pve ? [r.x, r.z] : mine3[i % 3], sgn = pve ? 1 : r.team === 0 ? 1 : -1
     r = { ...r, x: sp[0] * sgn, z: sp[1] * sgn }
     // 自機は出撃前に組んだギア（無ければ役割の既定）。古い loadout 指定も受ける
     const mine = r.player && myTrig
@@ -621,6 +627,7 @@ export function createState(seed = Date.now(), opts = {}) {
     })
   })
   for (const u of st.units) { u.maxEn = statEn(u.stats.en); u.en = u.maxEn } // ステータスの EN 量
+  if (pve) setupPve(st)
   return st
 }
 
@@ -723,7 +730,9 @@ function angleLerp(a, b, k) {
 
 // ---------------------------------------------------------------- ダメージと強制帰還
 function damage(st, target, amount, leak, src, kind, dirx, dirz) {
+  if (target.foe) return foeHit(st, target, amount, src, kind)
   if (!target.alive || target.shieldT > 0) return false
+  src = src || { id: -1 }
   if (src && src.stats) amount *= statAtk(src.stats.atk) // ステータスの攻撃
   if (src && adverse(src)) amount *= ADVERSITY_ATK // 逆境
   target.en -= amount
@@ -755,6 +764,7 @@ function bailout(st, u) {
 
 // 再出撃: 生きている敵からできるだけ離れ（レーダーの外）、味方に近い空き地へ出す
 function respawnPoint(st, u) {
+  if (st.mode !== 'pvp') return pveRespawnPoint(st, u)
   const foes = aliveEnemies(st, u), mates = st.units.filter(m => m.alive && m.team === u.team && m !== u)
   let best = null, bestScore = -Infinity
   for (let k = 0; k < 60; k++) {
@@ -782,7 +792,7 @@ function respawn(st, u) {
 }
 
 // ---------------------------------------------------------------- 狙い
-function aliveEnemies(st, u) { return st.units.filter(e => e.alive && e.team !== u.team) }
+function aliveEnemies(st, u) { const a = st.units.filter(e => e.alive && e.team !== u.team); if (u.team === 0) for (const f of st.foes) if (f.alive) a.push(f); return a }
 // その隊から見えている（レーダーか目で捉えている）か。味方の誰か1人が捉えていれば隊全体で分かる。
 // ステルスマント中はレーダーに映らず、目で見つかるのも45m以内
 // レーダーの点だけで分かるか（ミラージュ中の相手。マントを着ていれば映らない）
@@ -791,6 +801,7 @@ export function radarBlip(st, team, e) {
   return st.units.some(a => a.alive && a.team === team && Math.hypot(a.x - e.x, a.z - e.z) < (a.sense === 'hawk' ? HAWK_RADAR : RADAR_RANGE))
 }
 export function detectable(st, team, e) {
+  if (e.foe) return true // 協力の敵は基地のレーダーでいつも見えている
   if (e.cham) return false // ミラージュ中は目に映らない（狙いも付けられない）。レーダーにだけ映る（radarBlip）
   const sight = e.bag ? BAG_SIGHT : SIGHT
   return st.units.some(a => {
@@ -926,11 +937,24 @@ function snipe(st, u, target) {
     const cy = Math.max(e.y, Math.min(e.y + UNIT_H, py))
     if (Math.hypot(ox + dx * t - e.x, py - cy, oz + dz * t - e.z) < SNIPE_HIT_R) { hit = e; len = t; hitY = cy }
   }
+  if (u.team === 0) for (const f of st.foes) {
+    if (!f.alive) continue
+    if (f.shape === 'sphere') {
+      const t = (f.x - ox) * dx + (f.y + 1 - oy) * dy + (f.z - oz) * dz
+      if (t < 0 || t > len) continue
+      if (Math.hypot(ox + dx * t - f.x, oy + dy * t - (f.y + 1), oz + dz * t - f.z) < f.r) { hit = f; len = t; hitY = 0 }
+    } else {
+      const t = (f.x - ox) * dx + (f.y + 1.0 - oy) * dy + (f.z - oz) * dz
+      if (t < 0 || t > len) continue
+      const py = oy + dy * t, cy = Math.max(f.y, Math.min(f.y + f.h, py))
+      if (Math.hypot(ox + dx * t - f.x, py - cy, oz + dz * t - f.z) < SNIPE_HIT_R + f.r - UNIT_R) { hit = f; len = t; hitY = 0 }
+    }
+  }
   if (hit) {
     const hl = Math.hypot(dx, dz) || 1
     const head = u.sense === 'precise' && hitY > hit.y + 1.45 ? PRECISE_HEAD : 1 // 精密: 頭は1.3倍
     const drop = 1 - SNIPE_FALLOFF * Math.max(0, Math.min(1, (len - SNIPE_FULL) / (SNIPE_RANGE - SNIPE_FULL))) // 120mより先は弱まる（240mで75%）
-    if (damage(st, hit, (sp.dmin + (sp.dmax - sp.dmin) * charge) * head * drop, sp.leak * (0.5 + 0.5 * charge), u, 'snipe', dx / hl, dz / hl)) {
+    if (damage(st, hit, (sp.dmin + (sp.dmax - sp.dmin) * charge) * head * drop, sp.leak * (0.5 + 0.5 * charge), u, 'snipe', dx / hl, dz / hl) && !hit.boss) {
       hit.vx += dx / hl * sp.kick * charge; hit.vz += dz / hl * sp.kick * charge
     }
   }
@@ -968,7 +992,7 @@ function stepUnit(st, u, input) {
   // 手動で切り替えた相手は3秒間は自動で選び直さない
   const aiming = input.aimYaw !== undefined
   if (aiming) { u.aimYaw = input.aimYaw; u.aimPitch = input.aimPitch || 0 }
-  let target = st.units[u.targetId]
+  let target = uid(st, u.targetId)
   u.lockHold = Math.max(0, (u.lockHold || 0) - dt)
   if (input.lock) { target = pickLock(st, u, -1, u.targetId) || target; u.lockHold = 3 }
   else if (aiming && (u.lockHold <= 0 || !target || !target.alive)) target = pickLock(st, u, u.targetId, -1, u.aimYaw)
@@ -1096,6 +1120,15 @@ function stepUnit(st, u, input) {
         const nx = d > 0.01 ? dx / d : fx, nz = d > 0.01 ? dz / d : fz
         if (damage(st, e, ml.dmg, ml.leak, u, 'blade', nx, nz)) { e.vx += nx * 4.5; e.vz += nz * 4.5 } // 弾き飛ばしすぎると次の一太刀が届かない
         else { u.vx -= nx * 5; u.vz -= nz * 5 } // 防がれたら弾かれる
+      }
+      for (const f of st.foes) {
+        if (!f.alive || u.bladeHit.includes(f.id) || u.team === f.team) continue
+        const dx = f.x - u.x, dz = f.z - u.z, d = Math.hypot(dx, dz), fr = f.shape === 'sphere' ? f.r : f.r
+        if (d > ml.range + fr || Math.abs(foeCenterY(f) - (u.y + 1)) > 1.6 + (f.shape === 'sphere' ? f.r : 0)) continue
+        if (d > fr + 0.3 && (dx * fx + dz * fz) / d < ml.arc) continue
+        u.bladeHit.push(f.id)
+        damage(st, f, ml.dmg, ml.leak, u, 'blade', dx / (d || 1), dz / (d || 1))
+        if (!f.boss) { f.vx += dx / (d || 1) * 4.5; f.vz += dz / (d || 1) * 4.5 }
       }
     }
     if (u.bladeT >= ml.time) { u.bladeT = -1; u.bladeCd = cdOf(st, u, ml.cd) }
@@ -1255,7 +1288,7 @@ function aiInput(st, u) {
     // 25秒だれとも撃ち合わなければ、別の狙撃場所へ移る
     // 味方がいなくなったら、または試合が半分を過ぎたら、陣取るのをやめて探しに出る（狙撃手どうしのにらみ合いで止まらないように）
     const mates = st.units.some(a => a.alive && a.team === u.team && a.id !== u.id)
-    if (u.role === 'sniper' && (!STYLES[u.style] || STYLES[u.style].nest) && u.trig.includes('pad') && st.mainMap && STAGES[st.stage].nests.length && mates && st.t < MATCH_TIME / 2) {
+    if (st.mode === 'pvp' && u.role === 'sniper' && (!STYLES[u.style] || STYLES[u.style].nest) && u.trig.includes('pad') && st.mainMap && STAGES[st.stage].nests.length && mates && st.t < MATCH_TIME / 2) {
       const standing = n => st.blocks.some(b => b.id === n.id) // 崩れた狙撃場所は使わない
       if (ai.nest && !standing(ai.nest)) ai.nest = null
       if (!ai.nest || ai.nestT > 25) {
@@ -1269,8 +1302,8 @@ function aiInput(st, u) {
     }
     // 出撃直後の12秒は、散らばって転送された味方と合流しに向かう
     const allies = st.units.filter(a => a.alive && a.team === u.team && a.id !== u.id)
-    let g = ai.lastSeen || ai.patrol, pace = 0.8
-    if (!ai.lastSeen && st.t < REGROUP_T && allies.length) {
+    let g = st.mode !== 'pvp' ? pveIdleGoal(st, u) : ai.lastSeen || ai.patrol, pace = st.mode !== 'pvp' ? 1 : 0.8
+    if (st.mode === 'pvp' && !ai.lastSeen && st.t < REGROUP_T && allies.length) {
       g = { x: allies.reduce((a, b) => a + b.x, 0) / allies.length, z: allies.reduce((a, b) => a + b.z, 0) / allies.length }
       pace = Math.hypot(g.x - u.x, g.z - u.z) < 6 ? 0 : 0.7
     }
@@ -1290,6 +1323,8 @@ function aiInput(st, u) {
       const pw = STYLES[u.style]?.pickWeak
       const crowd = pw ? enemies.filter(o => o !== e && Math.hypot(o.x - e.x, o.z - e.z) < 12).length * 10 : 0
       const s = d + (lineOfSight(st, u, e) ? 0 : 12) - (e.id === ai.targetId ? 3 : 0) + e.en * (pw ? 0.2 : 0.04) + crowd
+        + (e.foe && !u.gun && !u.sniper && e.y - u.y > 2 ? 80 : 0) // 刃しか無いと高い部位には届かない
+        + (e.foe && st.mode === 'defense' ? Math.hypot(e.x - DEF_BASE.x, e.z - DEF_BASE.z) * 0.25 : 0) // 防衛は基地に近い敵から
       if (s < bs) { bs = s; best = e }
     }
     ai.targetId = best.id
@@ -1309,7 +1344,7 @@ function aiInput(st, u) {
     if ((threat || meleeThreat) && ai.dodgeT <= 0 && st.rand() < 0.5) { ai.dodgeT = 0.35 + st.rand() * 0.25; ai.strafe *= -1 }
   }
   ai.dodgeT = Math.max(0, ai.dodgeT - dt)
-  const t = st.units[ai.targetId]
+  const t = uid(st, ai.targetId)
   if (t && t.alive && t.cham && !detectable(st, u.team, t) && ai.lastSeen && !ai.lostCham) {
     // ミラージュで消えた相手は見失う: 最後に見た場所を大きくずらし、まっすぐ歩いてこないようにする
     const a = st.rand() * Math.PI * 2, r = 9 + st.rand() * 9
@@ -1507,6 +1542,426 @@ function aiInput(st, u) {
   return inp
 }
 
+// ================================================================ 協力（PvE）
+// 自分＋CPU5人の6人で、大型の敵を倒す（boss）か、押し寄せる人型の敵から基地を守る（defense）。舞台は市街地。
+// 敵（foe）は st.foes に入れ、id は FOE_ID から。uid(st, id) で味方・敵どちらも引ける
+export const FOE_ID = 1000
+export const PVE_MODES = ['boss', 'defense']
+export const uid = (st, id) => id >= FOE_ID ? st.foeMap.get(id) : st.units[id]
+export const BOSS_TIME = 360
+export const BOSS_HP = 18000
+export const BASE_HP = 60
+export const DEF_WAVES = 6
+const RALLY = { boss: { x: 0, z: 118 }, defense: { x: 0, z: 112 } }
+export const DEF_BASE = { x: 0, z: 147 }
+const PVE_ROSTER = [
+  { team: 0, role: 'allround', name: 'あなた', player: true, x: 0, z: 124 },
+  { team: 0, role: 'allround', name: '', x: -3, z: 120 }, { team: 0, role: 'allround', name: '', x: 3, z: 120 },
+  { team: 0, role: 'allround', name: '', x: -3, z: 128 }, { team: 0, role: 'allround', name: '', x: 3, z: 128 },
+  { team: 0, role: 'allround', name: '', x: 0, z: 132 },
+]
+// 協力の味方5人: 前衛・中衛・狙撃・かく乱を1人ずつ＋前衛か中衛をもう1人。自分の持ち場と重なる分は前衛か中衛へ回す。同じ型は1人まで
+function pickPveStyles(st, mySlot) {
+  const plan = ['front', 'mid', 'sniper', 'disrupt', st.rand() < 0.5 ? 'front' : 'mid']
+  const k = plan.indexOf(mySlot)
+  if (k >= 0) plan[k] = mySlot === 'front' ? 'mid' : mySlot === 'mid' ? 'front' : st.rand() < 0.5 ? 'front' : 'mid'
+  const used = new Set(), out = []
+  for (const slot of plan) {
+    const pool = Object.keys(STYLES).filter(x => STYLES[x].slot === slot && !used.has(x))
+    const x = pool[Math.floor(st.rand() * pool.length)]
+    used.add(x); out.push(x)
+  }
+  return out
+}
+function makeFoe(st, o) {
+  const f = { id: st.nextFoe++, foe: true, team: 1, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, yaw: 0, en: 20, maxEn: 20, alive: true, r: UNIT_R, h: UNIT_H, shape: 'unit',
+    hist: [], wounds: [], leak: 0, bladeT: -1, role: 'shooter', melee: null, cham: false, bag: false, targetId: -1, sense: null, hurtT: -1, shieldT: 0, stats: null, revealT: 0, kills: 0, ...o }
+  st.foes.push(f); st.foeMap.set(f.id, f)
+  return f
+}
+function removeDeadFoes(st) {
+  if (!st.foes.some(f => !f.alive && f.gone)) return
+  st.foes = st.foes.filter(f => { if (!f.alive && f.gone) { st.foeMap.delete(f.id); return false } return true })
+}
+// 当たり判定: 球（大型の敵の部位）か、人と同じ縦長の筒（人型の敵）
+function foeTouch(f, x, y, z, pad) {
+  if (f.shape === 'sphere') return Math.hypot(x - f.x, y - (f.y + 1), z - f.z) < f.r + pad
+  return y >= f.y - 0.1 && y <= f.y + f.h && Math.hypot(x - f.x, z - f.z) < f.r + pad
+}
+const foeCenterY = f => f.shape === 'sphere' ? f.y + 1 : f.y + f.h * 0.55
+// 敵に当たった: 大型は部位の倍率で本体を削り、部位の耐久も削る。人型は耐久を削る
+function foeHit(st, f, amount, src, kind) {
+  if (!f.alive) return false
+  if (src && src.stats) amount *= statAtk(src.stats.atk)
+  if (src && adverse(src)) amount *= ADVERSITY_ATK
+  f.hurtT = 0
+  let shown = amount
+  if (f.boss) {
+    const B = st.boss, p = f.part
+    if (B.hp <= 0) return false
+    const m = p.mult * (p.core && B.stagger > 0 ? 1.8 : 1)
+    shown = amount * m
+    B.hp = Math.max(0, B.hp - shown)
+    B.dmgBy[src ? src.id : -1] = (B.dmgBy[src ? src.id : -1] || 0) + shown
+    if (p.maxHp && !p.broken) {
+      p.hp -= amount
+      if (p.hp <= 0) breakPart(st, p, f)
+    }
+    st.events.push({ type: 'fhit', id: f.id, src: src ? src.id : -1, kind, x: f.x, y: f.y + 1, z: f.z, amount: shown, part: p.key, weak: !!p.core })
+    if (B.hp <= 0) bossDown(st)
+    return true
+  }
+  f.en -= amount
+  st.events.push({ type: 'fhit', id: f.id, src: src ? src.id : -1, kind, x: f.x, y: f.y + 1.2, z: f.z, amount })
+  if (f.en <= 0) foeDown(st, f, src)
+  return true
+}
+// 検証用: 敵に直接ダメージを与える
+export const damageFoe = (st, f, amount, src) => foeHit(st, f, amount, src, 'bullet')
+function foeDown(st, f, src, how = 'down') {
+  if (!f.alive) return
+  f.alive = false; f.gone = true
+  if (src && src.team === 0 && how === 'down') { src.kills++; st.score[0]++ }
+  st.events.push({ type: 'fdown', id: f.id, kind: f.kind, x: f.x, y: f.y, z: f.z, how, src: src ? src.id : -1 })
+}
+
+// ---------------------------------------------------------------- 大型の敵「グラムドーザ」
+// 四つ脚の重機のような巨体。部位: 胴（硬い）・背中のコア（弱点）・左右の腕砲（壊すと砲撃が止まる）・脚4本（2本壊すたびに膝をつき、コアが無防備に）
+// 技: 腕砲の連射（砲口が光ってから）・踏みつけ（足元に赤い輪が出てから衝撃波）・薙ぎ払いの光線（第2段階から。地面に赤い線が出てから）
+// 段階: 体力2/3で第2段階（光線）、1/3で第3段階（技の間隔が短く、足も速い）
+export const BOSS_NAME = 'グラムドーザ'
+export const BOSS_PARTS = [
+  { key: 'core', name: 'コア', lx: 0, ly: 11.2, lz: -3.2, r: 1.5, mult: 2.4, core: true },
+  { key: 'armL', name: '左の腕砲', lx: -4.6, ly: 7.6, lz: 1.6, r: 1.7, mult: 1.0, maxHp: 900 },
+  { key: 'armR', name: '右の腕砲', lx: 4.6, ly: 7.6, lz: 1.6, r: 1.7, mult: 1.0, maxHp: 900 },
+  { key: 'legFL', name: '左前脚', lx: -3.4, ly: 2.4, lz: 3.2, r: 1.5, mult: 0.8, maxHp: 700, leg: true },
+  { key: 'legFR', name: '右前脚', lx: 3.4, ly: 2.4, lz: 3.2, r: 1.5, mult: 0.8, maxHp: 700, leg: true },
+  { key: 'legBL', name: '左後脚', lx: -3.4, ly: 2.4, lz: -3.2, r: 1.5, mult: 0.8, maxHp: 700, leg: true },
+  { key: 'legBR', name: '右後脚', lx: 3.4, ly: 2.4, lz: -3.2, r: 1.5, mult: 0.8, maxHp: 700, leg: true },
+  { key: 'body', name: '胴', lx: 0, ly: 8.2, lz: 0.4, r: 4.0, mult: 0.35 },
+]
+const BOSS_NODES = [-90, 0, 90]
+export const BOSS_BODY_R = 4.3 // 足元で人を押し出す半径
+function setupBoss(st) {
+  const B = st.boss = { x: 0, z: -90, y: 0, yaw: 0, hp: BOSS_HP, maxHp: BOSS_HP, phase: 1, goal: [0, -90], stagger: 0, kneel: 0, legsBroken: 0,
+    cd: { armL: 4, armR: 5.5, stomp: 3, beam: 10 }, warn: {}, tele: null, near: 0, dmgBy: {}, step: 0, parts: [] }
+  for (const d of BOSS_PARTS) {
+    const p = { ...d, hp: d.maxHp, broken: false }
+    p.foe = makeFoe(st, { kind: 'boss', boss: true, part: p, shape: 'sphere', r: d.r, en: d.core ? 20 : d.key === 'body' ? 80 : 40, maxEn: 40, role: 'boss' })
+    B.parts.push(p)
+  }
+  placeBossParts(st)
+}
+function bossLocal(B, lx, ly, lz) {
+  const c = Math.cos(B.yaw), s = Math.sin(B.yaw)
+  return [B.x + lx * c + lz * s, B.y + ly - B.kneel, B.z - lx * s + lz * c]
+}
+function placeBossParts(st) {
+  const B = st.boss
+  for (const p of B.parts) {
+    const [x, y, z] = bossLocal(B, p.lx, p.leg ? p.ly + B.kneel * 0.6 : p.ly, p.lz)
+    const f = p.foe
+    f.vx = (x - f.x) / STEP; f.vz = (z - f.z) / STEP; f.vy = 0
+    f.x = x; f.y = y - 1; f.z = z; f.yaw = B.yaw
+  }
+}
+function breakPart(st, p, f) {
+  const B = st.boss
+  p.broken = true; f.alive = false
+  st.events.push({ type: 'partBreak', key: p.key, name: p.name, x: f.x, y: f.y + 1, z: f.z })
+  if (p.leg) {
+    B.legsBroken++
+    if (B.legsBroken % 2 === 0) { B.stagger = 7; B.tele = null; st.events.push({ type: 'stagger', x: B.x, z: B.z }) } // 膝をつく: 動けず、コアが無防備
+  }
+}
+function bossDown(st) {
+  const B = st.boss
+  for (const p of B.parts) p.foe.alive = false
+  st.events.push({ type: 'bossDown', x: B.x, y: 6, z: B.z })
+  endPve(st, 0, 'boss')
+}
+const aliveMates = st => st.units.filter(u => u.alive)
+function stepBoss(st) {
+  const B = st.boss, dt = STEP
+  if (B.hp <= 0) return
+  B.step++
+  // 段階
+  const ph = B.hp < B.maxHp / 3 ? 3 : B.hp < B.maxHp * 2 / 3 ? 2 : 1
+  if (ph !== B.phase) { B.phase = ph; st.events.push({ type: 'bossPhase', phase: ph }) }
+  const fast = ph === 3 ? 0.65 : 1
+  // 膝をついている間: 何もしない
+  B.stagger = Math.max(0, B.stagger - dt)
+  B.kneel += ((B.stagger > 0 ? 3 : 0) - B.kneel) * Math.min(1, dt * 4)
+  const units = aliveMates(st)
+  if (B.stagger <= 0 && units.length) {
+    // 狙い: 一番近い人の方を向く
+    let near = null, nd = Infinity
+    for (const u of units) { const d = Math.hypot(u.x - B.x, u.z - B.z); if (d < nd) { nd = d; near = u } }
+    // 移動: 大通りの交差点から交差点へ。人の集まりへ寄っていく（近くに人がいれば止まって戦う）
+    if (!B.tele) {
+      const cx = units.reduce((a, u) => a + u.x, 0) / units.length, cz = units.reduce((a, u) => a + u.z, 0) / units.length
+      const gx = B.goal[0], gz = B.goal[1], gd = Math.hypot(gx - B.x, gz - B.z)
+      if (gd < 0.5) {
+        let best = B.goal, bs = Math.hypot(cx - gx, cz - gz) - 8 // 今いる交差点に少しだけ居たがる
+        for (const [ox, oz] of [[90, 0], [-90, 0], [0, 90], [0, -90]]) {
+          const nx = gx + ox, nz = gz + oz
+          if (!BOSS_NODES.includes(nx) || !BOSS_NODES.includes(nz)) continue
+          const sc = Math.hypot(cx - nx, cz - nz)
+          if (sc < bs) { bs = sc; best = [nx, nz] }
+        }
+        B.goal = best
+      }
+      const g2 = Math.hypot(B.goal[0] - B.x, B.goal[1] - B.z)
+      if (g2 > 0.05 && nd > 14) {
+        const sp = Math.min(g2, (ph === 3 ? 3.6 : 2.6) * dt)
+        const mx = (B.goal[0] - B.x) / g2, mz = (B.goal[1] - B.z) / g2
+        B.x += mx * sp; B.z += mz * sp
+        B.yaw = angleLerp(B.yaw, Math.atan2(mx, mz), Math.min(1, dt * 1.5))
+      } else if (near) B.yaw = angleLerp(B.yaw, Math.atan2(near.x - B.x, near.z - B.z), Math.min(1, dt * 1.2))
+    }
+    // 技
+    for (const k in B.cd) B.cd[k] -= dt
+    // 腕砲: 砲口が0.6秒光ってから、狙った人へ4連射
+    for (const arm of ['armL', 'armR']) {
+      const p = B.parts.find(q => q.key === arm)
+      if (p.broken) continue
+      if (B.warn[arm] !== undefined) {
+        B.warn[arm] -= dt
+        if (B.warn[arm] <= 0) {
+          const t = st.units[B.warnT[arm]]
+          delete B.warn[arm]
+          if (t && t.alive) {
+            for (let i = 0; i < 4; i++) {
+              const ox = p.foe.x, oy = p.foe.y + 1, oz = p.foe.z
+              const d = Math.hypot(t.x - ox, t.z - oz), v = 40, tt = d / v
+              const ax = t.x + t.vx * tt * 0.6 - ox + (st.rand() - 0.5) * 2.2, ay = t.y + 1 - oy + (st.rand() - 0.5) * 1.2, az = t.z + t.vz * tt * 0.6 - oz + (st.rand() - 0.5) * 2.2
+              const l = Math.hypot(ax, ay, az) || 1
+              st.bullets.push({ x: ox, y: oy, z: oz, vx: ax / l * v, vy: ay / l * v, vz: az / l * v, life: 2.4, team: 1, owner: p.foe.id, kind: 'boss', dmg: 6, grav: 0, blast: 0, big: true, home: -1, turn: 0, tp: null, age: -i * 0.09, slow: 0, head: 1, kb: 1.2 })
+            }
+            st.events.push({ type: 'bossShot', key: arm, x: p.foe.x, y: p.foe.y + 1, z: p.foe.z })
+          }
+        }
+      } else if (B.cd[arm] <= 0 && !B.tele) {
+        const cands = units.filter(u => Math.hypot(u.x - B.x, u.z - B.z) < 75)
+        if (cands.length) {
+          const t = cands[Math.floor(st.rand() * cands.length)]
+          B.warn[arm] = 0.6; B.warnT = B.warnT || {}; B.warnT[arm] = t.id
+          B.cd[arm] = (3.4 + st.rand()) * fast
+          st.events.push({ type: 'bossWarn', key: arm, target: t.id })
+        }
+      }
+    }
+    // 予兆つきの大技（踏みつけ・光線）
+    if (B.tele) {
+      const T = B.tele
+      T.t += dt
+      if (T.kind === 'stomp' && T.t >= T.dur) {
+        for (const u of units) {
+          const d = Math.hypot(u.x - B.x, u.z - B.z)
+          if (d > 11.5 || u.y > 2.6) continue // 跳んでかわせる
+          const nx = (u.x - B.x) / (d || 1), nz = (u.z - B.z) / (d || 1)
+          if (damage(st, u, 26 * (1 - d / 23), 0.6, B.parts[7].foe, 'blast', nx, nz)) { u.vx += nx * 11; u.vz += nz * 11; u.vy = Math.max(u.vy, 5); u.grounded = false; u.stun = Math.max(u.stun, 0.35) }
+        }
+        st.events.push({ type: 'stomp', x: B.x, z: B.z, r: 11.5 })
+        B.tele = null; B.cd.stomp = 6 * fast
+      } else if (T.kind === 'beam') {
+        if (T.t >= T.dur && !T.fired) {
+          T.fired = true
+          const [hx, hy, hz] = bossLocal(B, 0, 9.5, 3.4)
+          for (const u of units) {
+            // 線（頭から地面の終点まで）への距離
+            const ex = T.ex - hx, ey = 0.5 - hy, ez = T.ez - hz, L2 = ex * ex + ey * ey + ez * ez
+            const k = Math.max(0, Math.min(1, ((u.x - hx) * ex + (u.y + 1 - hy) * ey + (u.z - hz) * ez) / L2))
+            const dd = Math.hypot(hx + ex * k - u.x, hy + ey * k - (u.y + 1), hz + ez * k - u.z)
+            if (dd < 1.9 && !st.blocks.some(b => segHitsBox(hx, hy, hz, u.x, u.y + 1, u.z, b))) damage(st, u, 42, 0.8, B.parts[0].foe, 'snipe', ex / Math.sqrt(L2), ez / Math.sqrt(L2))
+          }
+          st.events.push({ type: 'beam', x: hx, y: hy, z: hz, hx: T.ex, hy: 0.3, hz: T.ez })
+        }
+        if (T.t >= T.dur + 0.5) { B.tele = null; B.cd.beam = (9 + st.rand() * 3) * fast }
+      }
+    } else {
+      const close = units.filter(u => Math.hypot(u.x - B.x, u.z - B.z) < 10.5 && u.y < 2.6).length
+      B.near = close ? B.near + dt : 0
+      if (B.near > 1.2 && B.cd.stomp <= 0) { B.tele = { kind: 'stomp', t: 0, dur: 1.25 }; B.near = 0; st.events.push({ type: 'tele', kind: 'stomp', x: B.x, z: B.z, r: 11.5, dur: 1.25 }) }
+      else if (ph >= 2 && B.cd.beam <= 0 && near && nd > 12 && nd < 85) {
+        // 光線: 狙った人の今いる場所を通って、その先まで地面を焼く
+        const [hx, , hz] = bossLocal(B, 0, 9.5, 3.4)
+        const dx = near.x - hx, dz = near.z - hz, l = Math.hypot(dx, dz) || 1
+        const ex = hx + dx / l * Math.min(95, l + 20), ez = hz + dz / l * Math.min(95, l + 20)
+        B.tele = { kind: 'beam', t: 0, dur: 1.6, ex, ez }
+        B.yaw = Math.atan2(dx, dz)
+        st.events.push({ type: 'tele', kind: 'beam', x: hx, z: hz, ex, ez, dur: 1.6 })
+      }
+    }
+  } else if (B.stagger > 0) { B.tele = null; B.warn = {} }
+  placeBossParts(st)
+  // 巨体の足元: 人を押し出す（すり抜けない）
+  for (const u of units) {
+    if (u.y > 9.5 - B.kneel) continue
+    const dx = u.x - B.x, dz = u.z - B.z, d = Math.hypot(dx, dz)
+    if (d < BOSS_BODY_R && d > 1e-6) { u.x = B.x + dx / d * BOSS_BODY_R; u.z = B.z + dz / d * BOSS_BODY_R; const vn = u.vx * dx / d + u.vz * dz / d; if (vn < 0) { u.vx -= vn * dx / d; u.vz -= vn * dz / d } }
+  }
+  if (st.timeLeft <= 0) endPve(st, 1, 'time')
+}
+
+// ---------------------------------------------------------------- 防衛: 人型の敵の波から基地を守る
+// 北の端から大通り・路地を下ってきて、南の横道から基地へ向かう。基地まで着いた敵は耐久を削って消える
+// 種類: 歩兵（ふつう）・走り（速く脆い）・重装（遅く硬い・基地に大きく響く）・射手（離れて撃つ）・自爆（近づいて爆発。基地に特に効く）
+export const GRUNTS = {
+  walker: { name: '歩兵', hp: 22, spd: 3.4, atk: 'melee', dmg: 6, cd: 1.1, base: 4, r: 0.45, h: 1.8, aggro: 8 },
+  runner: { name: '走り', hp: 11, spd: 7.2, atk: 'melee', dmg: 4, cd: 0.7, base: 3, r: 0.4, h: 1.6, aggro: 6 },
+  brute: { name: '重装', hp: 95, spd: 2.1, atk: 'melee', dmg: 14, cd: 1.6, base: 10, r: 0.75, h: 2.5, aggro: 7 },
+  gunner: { name: '射手', hp: 18, spd: 3.0, atk: 'gun', dmg: 2.2, cd: 1.3, base: 4, r: 0.45, h: 1.8, aggro: 26 },
+  bomber: { name: '自爆', hp: 14, spd: 5.4, atk: 'bomb', dmg: 22, cd: 0, base: 14, r: 0.45, h: 1.7, aggro: 9 },
+}
+export const FOE_MAX = 64 // 同時に出る数の上限（スマホで重くしない）
+const LANES = [-90, -45, 0, 45, 90]
+// ウェーブごとの中身（数は少しずつ増え、種類が足されていく）
+export function waveList(n) {
+  const L = []
+  const add = (k, c) => { for (let i = 0; i < c; i++) L.push(k) }
+  add('walker', 10 + n * 4)
+  if (n >= 2) add('runner', 3 + n * 3)
+  if (n >= 2) add('gunner', 1 + Math.round(n * 1.5))
+  if (n >= 3) add('brute', n)
+  if (n >= 4) add('bomber', 2 + (n - 3) * 3)
+  return L
+}
+function setupDefense(st) {
+  st.def = { wave: 0, base: { ...DEF_BASE, hp: BASE_HP, max: BASE_HP }, queue: [], spawnT: 0, breakT: 8, waveT: 0, lane: 0, leaked: 0, total: 0 }
+}
+function spawnGrunt(st, kind) {
+  const D = st.def, G = GRUNTS[kind]
+  const lx = LANES[(D.lane++ * 3 + Math.floor(st.rand() * 2)) % LANES.length]
+  const off = (st.rand() - 0.5) * 4.5
+  const x = lx + off, z = -150 - st.rand() * 6
+  const path = [[x, 133 + (st.rand() - 0.5) * 3], [(st.rand() - 0.5) * 6, 135], [DEF_BASE.x + (st.rand() - 0.5) * 3, DEF_BASE.z - 2]]
+  makeFoe(st, { kind, x, z, en: G.hp, maxEn: G.hp, r: G.r, h: G.h, path, wi: 0, cd: st.rand(), spd: G.spd * (0.9 + st.rand() * 0.2), yaw: 0, role: G.atk === 'gun' ? 'shooter' : 'attacker', melee: G.atk === 'melee' ? 'claw' : null, born: st.t })
+  D.total++
+}
+function gruntExplode(st, f) {
+  const G = GRUNTS.bomber
+  for (const u of st.units) {
+    if (!u.alive) continue
+    const d = Math.hypot(u.x - f.x, u.y + 1 - (f.y + 1), u.z - f.z)
+    if (d < 4.5) { const nx = (u.x - f.x) / (d || 1), nz = (u.z - f.z) / (d || 1); if (damage(st, u, G.dmg * (1 - 0.6 * d / 4.5), 0.6, f, 'blast', nx, nz)) { u.vx += nx * 7; u.vz += nz * 7 } }
+  }
+  st.events.push({ type: 'explode', x: f.x, y: 1, z: f.z, r: 4.5, team: 1 })
+}
+function hitBase(st, f) {
+  const D = st.def, G = GRUNTS[f.kind]
+  D.base.hp = Math.max(0, D.base.hp - G.base)
+  D.leaked++
+  if (f.kind === 'bomber') gruntExplode(st, f)
+  st.events.push({ type: 'baseHit', x: f.x, z: f.z, hp: D.base.hp, kind: f.kind })
+  foeDown(st, f, null, 'base')
+  if (D.base.hp <= 0) endPve(st, 1, 'base')
+}
+function stepGrunt(st, f) {
+  const dt = STEP, G = GRUNTS[f.kind]
+  f.hurtT = f.hurtT >= 0 ? (f.hurtT + dt > 0.3 ? -1 : f.hurtT + dt) : -1
+  f.cd -= dt
+  // 近くの人を見つけたら寄っていく（射手は止まって撃つ）。人がいなければ道なりに基地へ
+  let tgt = null, td = G.aggro
+  for (const u of st.units) { if (!u.alive || u.cham) continue; const d = Math.hypot(u.x - f.x, u.z - f.z); if (d < td && Math.abs(u.y - f.y) < (G.atk === 'gun' ? 30 : 3)) { td = d; tgt = u } }
+  let mx = 0, mz = 0
+  const bd = Math.hypot(DEF_BASE.x - f.x, DEF_BASE.z - f.z)
+  if (bd < 4.5) { hitBase(st, f); return }
+  if (tgt) {
+    f.targetId = tgt.id
+    const dx = tgt.x - f.x, dz = tgt.z - f.z, d = td || 1
+    if (G.atk === 'gun') {
+      if (d > 18) { mx = dx / d; mz = dz / d }
+      if (f.cd <= 0 && d < G.aggro) {
+        f.cd = G.cd * (0.8 + st.rand() * 0.4)
+        const v = 30, oy = f.y + 1.4, ax = dx + (st.rand() - 0.5) * 2.4, ay = tgt.y + 1 - oy + (st.rand() - 0.5), az = dz + (st.rand() - 0.5) * 2.4, l = Math.hypot(ax, ay, az) || 1
+        st.bullets.push({ x: f.x, y: oy, z: f.z, vx: ax / l * v, vy: ay / l * v, vz: az / l * v, life: 1.2, team: 1, owner: f.id, kind: 'foe', dmg: G.dmg, grav: 0, blast: 0, big: false, home: -1, turn: 0, tp: null, age: 0, slow: 0, head: 1, kb: 0 })
+        st.events.push({ type: 'fshoot', id: f.id, x: f.x, y: oy, z: f.z })
+      }
+    } else {
+      mx = dx / d; mz = dz / d
+      if (G.atk === 'bomb' && d < 2.2) { gruntExplode(st, f); foeDown(st, f, null, 'boom'); return }
+      if (G.atk === 'melee' && d < 1.3 + f.r && f.cd <= 0) {
+        f.cd = G.cd; f.bladeT = 0
+        damage(st, tgt, G.dmg, 0.45, f, 'claw', dx / d, dz / d)
+        st.events.push({ type: 'fswing', id: f.id })
+      }
+    }
+  } else {
+    f.targetId = -1
+    const w = f.path[Math.min(f.wi, f.path.length - 1)]
+    const dx = w[0] - f.x, dz = w[1] - f.z, d = Math.hypot(dx, dz)
+    if (d < 1.5 && f.wi < f.path.length - 1) f.wi++
+    if (d > 0.01) { mx = dx / d; mz = dz / d }
+  }
+  if (f.bladeT >= 0) { f.bladeT += dt; if (f.bladeT > 0.35) f.bladeT = -1 }
+  const sp = f.spd * (f.bladeT >= 0 ? 0.3 : 1) * (1 - (f.slow || 0))
+  f.vx += (mx * sp - f.vx) * Math.min(1, dt * 8); f.vz += (mz * sp - f.vz) * Math.min(1, dt * 8)
+  f.x += f.vx * dt; f.z += f.vz * dt
+  if (Math.hypot(mx, mz) > 0.1) f.yaw = angleLerp(f.yaw, Math.atan2(mx, mz), Math.min(1, dt * 8))
+  if (tgt) { const sv = { x: f.x, y: 0, z: f.z, vx: f.vx, vz: f.vz }; collideBlocks(st, sv); f.x = sv.x; f.z = sv.z } // 人を追って道を外れたときだけ建物から押し出す
+  const lim = MAP_HALF - 1
+  f.x = Math.max(-lim, Math.min(lim, f.x)); f.z = Math.max(-lim - 10, Math.min(lim, f.z))
+}
+function stepDefense(st) {
+  const D = st.def, dt = STEP
+  if (D.breakT > 0) {
+    D.breakT -= dt
+    if (D.breakT <= 0) { D.wave++; D.queue = waveList(D.wave); for (let i = D.queue.length - 1; i > 0; i--) { const j = Math.floor(st.rand() * (i + 1)); [D.queue[i], D.queue[j]] = [D.queue[j], D.queue[i]] } D.waveT = 0; st.events.push({ type: 'wave', n: D.wave, count: D.queue.length }) }
+    return
+  }
+  D.waveT += dt
+  D.spawnT -= dt
+  const alive = st.foes.filter(f => f.alive).length
+  if (D.queue.length && D.spawnT <= 0 && alive < FOE_MAX) { spawnGrunt(st, D.queue.shift()); D.spawnT = Math.max(0.15, 0.45 - D.wave * 0.05) }
+  for (const f of st.foes) if (f.alive) stepGrunt(st, f)
+  removeDeadFoes(st)
+  if (st.phase !== 'play') return
+  // 全部倒すか、出し切ってから25秒たったら次のウェーブ（残りは押し寄せたまま）
+  if (!D.queue.length) D.tail = (D.tail || 0) + dt; else D.tail = 0
+  if (!D.queue.length && D.wave < DEF_WAVES && D.tail > 25 && D.breakT <= 0) { D.breakT = 0.01; D.tail = 0; return }
+  if (!D.queue.length && !st.foes.some(f => f.alive)) {
+    st.events.push({ type: 'waveClear', n: D.wave })
+    if (D.wave >= DEF_WAVES) endPve(st, 0, 'waves')
+    else D.breakT = 7
+  }
+}
+function setupPve(st) {
+  st.timeLeft = st.mode === 'boss' ? BOSS_TIME : 0
+  if (st.mode === 'boss') setupBoss(st)
+  else setupDefense(st)
+}
+function stepPve(st) {
+  if (st.mode === 'boss') stepBoss(st)
+  else stepDefense(st)
+  // 全員がいっぺんに強制帰還したら負け
+  if (st.phase === 'play' && st.t > 2 && st.units.every(u => !u.alive)) endPve(st, 1, 'wipe')
+}
+function endPve(st, winner, reason) {
+  if (st.phase !== 'play') return
+  st.phase = 'over'; st.endReason = reason; st.winner = winner
+  st.events.push({ type: 'over', winner, reason })
+}
+function pveRespawnPoint(st, u) {
+  const R = RALLY[st.mode]
+  let rx = R.x, rz = R.z
+  if (st.mode === 'boss') {
+    // 大型の敵から60m以上離れた、大通りの上
+    const B = st.boss, opts = []
+    for (const a of BOSS_NODES) for (const b of BOSS_NODES) opts.push([a, b])
+    const far = opts.filter(([x, z]) => Math.hypot(x - B.x, z - B.z) > 60)
+    const pick = far.length ? far.reduce((p, q) => Math.hypot(q[0] - B.x, q[1] - B.z) < Math.hypot(p[0] - B.x, p[1] - B.z) ? q : p) : [0, 118]
+    rx = pick[0]; rz = pick[1]
+  }
+  return [rx + (st.rand() - 0.5) * 6, rz + (st.rand() - 0.5) * 6]
+}
+// 協力の CPU 味方が敵を見ていないとき: 防衛は基地の前、ボスは敵の方へ
+function pveIdleGoal(st, u) {
+  if (st.mode === 'boss') return { x: st.boss.x, z: st.boss.z }
+  const R = RALLY.defense
+  return { x: R.x + ((u.id % 3) - 1) * 6, z: R.z - 20 - (u.id % 2) * 10 }
+}
+
 // ---------------------------------------------------------------- 1ステップ
 // playerInput は自機への入力。autoplay のときは無視して AI が動かす
 export function step(st, playerInput = {}) {
@@ -1519,9 +1974,10 @@ export function step(st, playerInput = {}) {
     stepBullets(st)
     return
   }
+  const pve = st.mode !== 'pvp'
   if (st.overtime) st.overtimeT += dt
-  else st.timeLeft = Math.max(0, st.timeLeft - dt)
-  for (const u of st.units) if (!u.alive && u.outT >= respawnT(u)) respawn(st, u)
+  else if (!pve || st.mode === 'boss') st.timeLeft = Math.max(0, st.timeLeft - dt)
+  for (const u of st.units) if (!u.alive && u.outT >= respawnDelay(st, u)) respawn(st, u)
   for (const u of st.units) { u.hist.push({ x: u.x, y: u.y, z: u.z }); if (u.hist.length > SNIPE_LAG + 1) u.hist.shift() }
 
   // 毎ステップ同じ順だと先に処理される隊が撃ち合い・斬り合いで常に先手を取るので、1ステップごとに順を入れ替える
@@ -1550,10 +2006,11 @@ export function step(st, playerInput = {}) {
   }
   // 押し合いで壁の中へ押し込まれないよう、もう一度建物から押し出す
   for (const u of st.units) if (u.alive) collideBlocks(st, u)
+  if (pve) stepPve(st)
   stepBullets(st)
 
   // 決着: 時間切れで撃破数の多い方。同点なら延長戦（先に撃破した方が勝ち、最長 OVERTIME_MAX 秒）
-  if (st.timeLeft <= 0) {
+  if (!pve && st.timeLeft <= 0) {
     if (st.score[0] !== st.score[1]) endMatch(st, st.overtime ? 'overtime' : 'time')
     else if (!st.overtime) { st.overtime = true; st.overtimeT = 0; st.events.push({ type: 'overtime' }) }
     else if (st.overtimeT >= OVERTIME_MAX) endMatch(st, 'time')
@@ -1578,7 +2035,7 @@ function stepBullets(st) {
       b.vx *= v / v2; b.vy *= v / v2; b.vz *= v / v2
     }
     if (b.home >= 0) {
-      const t = st.units[b.home]
+      const t = uid(st, b.home)
       if (t && t.alive && !t.cham) {
         const lead = Math.hypot(t.x - b.x, t.z - b.z) / (Math.hypot(b.vx, b.vz) || 1) * 0.8
         steerTo(t.x + t.vx * lead, t.y + 1.0, t.z + t.vz * lead, b.turn)
@@ -1601,20 +2058,29 @@ function stepBullets(st) {
         const r = UNIT_R + (b.big ? 0.3 : 0.12)
         if (hr > r) continue
         const v = Math.hypot(b.vx, b.vz) || 1
-        const owner = st.units[b.owner], precise = owner && owner.sense === 'precise'
+        const owner = uid(st, b.owner), precise = owner && owner.sense === 'precise'
         const headHit = (b.head > 1 || precise) && b.y > u.y + 1.45 // 頭（首から上）に当たった
-        if (!b.blast && damage(st, u, b.dmg * (headHit ? (b.head || 1) * (precise ? PRECISE_HEAD : 1) : 1), BULLET_LEAK, st.units[b.owner], headHit ? 'head' : 'bullet', b.vx / v, b.vz / v)) {
+        if (!b.blast && damage(st, u, b.dmg * (headHit ? (b.head || 1) * (precise ? PRECISE_HEAD : 1) : 1), BULLET_LEAK, owner, headHit ? 'head' : 'bullet', b.vx / v, b.vz / v)) {
           if (b.slow) { u.weights = (u.slowT > 0 ? u.weights || 0 : 0) + 1; u.slow = Math.min(WEIGHT_MAX, u.weights * b.slow); u.slowT = WEIGHT_T }
           if (b.kb) { u.vx += b.vx / v * b.kb; u.vz += b.vz / v * b.kb; u.kbHits = (u.kbT > 0 ? u.kbHits || 0 : 0) + 1; u.kbT = 0.12; if (u.kbHits >= 5) u.stun = Math.max(u.stun, 0.25) } // 散弾が多く当たるとよろめく
         }
-        else if (u.id !== b.owner) damage(st, u, b.dmg * 0.4, BULLET_LEAK, st.units[b.owner], 'bullet', b.vx / v, b.vz / v) // 直撃の分（残りは爆風）
+        else if (u.id !== b.owner) damage(st, u, b.dmg * 0.4, BULLET_LEAK, owner, 'bullet', b.vx / v, b.vz / v) // 直撃の分（残りは爆風）
+        gone = true
+        break
+      }
+      // 協力の敵（大型の部位・人型）
+      if (!gone && b.team === 0) for (const f of st.foes) {
+        if (!f.alive || !foeTouch(f, b.x, b.y, b.z, b.big ? 0.3 : 0.12)) continue
+        const v = Math.hypot(b.vx, b.vz) || 1, owner = st.units[b.owner]
+        if (!b.blast) { damage(st, f, b.dmg, BULLET_LEAK, owner, 'bullet', b.vx / v, b.vz / v); if (b.slow && !f.boss) f.slow = Math.min(0.45, (f.slow || 0) + b.slow) }
+        else damage(st, f, b.dmg * 0.4, BULLET_LEAK, owner, 'bullet', b.vx / v, b.vz / v)
         gone = true
         break
       }
     }
     // 爆発する弾（グレネードランチャー・炸裂弾）: どこかに当たるか飛び切ったら爆発。近いほど痛い（壁の向こうには届かない）
     if (gone && b.blast) {
-      const g = { radius: b.blast, dmg: b.dmg, leak: 0.5 }, src = st.units[b.owner]
+      const g = { radius: b.blast, dmg: b.dmg, leak: 0.5 }, src = uid(st, b.owner)
       const ex = b.x - b.vx * dt * 0.5, ey = Math.max(0.3, b.y - b.vy * dt * 0.5), ez = b.z - b.vz * dt * 0.5
       st.events.push({ type: 'explode', x: ex, y: ey, z: ez, r: g.radius, team: b.team })
       // 爆風は近くの建物も削る（箱までの距離で減衰）
@@ -1631,6 +2097,12 @@ function stepBullets(st) {
         if (st.blocks.some(k => segHitsBox(ex, ey, ez, u.x, u.y + 1, u.z, k))) continue
         const nx = (u.x - ex) / (d || 1), nz = (u.z - ez) / (d || 1)
         if (damage(st, u, g.dmg * (1 - 0.6 * d / g.radius), g.leak, src, 'blast', nx, nz)) { const kb = Math.min(7, g.dmg * 0.45); u.vx += nx * kb; u.vz += nz * kb; if (g.dmg > 8) { u.vy = Math.max(u.vy, 4); u.grounded = false } } // 小さな爆発は軽く押すだけ
+      }
+      if (st.phase === 'play' && b.team === 0) for (const f of st.foes) {
+        if (!f.alive) continue
+        const d = Math.max(0, Math.hypot(f.x - ex, foeCenterY(f) - ey, f.z - ez) - (f.shape === 'sphere' ? f.r : 0))
+        if (d > g.radius) continue
+        damage(st, f, g.dmg * (1 - 0.6 * d / g.radius), g.leak, src, 'blast', 0, 0)
       }
     }
     if (gone) st.bullets.splice(i, 1)

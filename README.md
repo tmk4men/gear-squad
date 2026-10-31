@@ -5,7 +5,7 @@
 
 ```bash
 node server.mjs          # http://localhost:5180 で遊ぶ（PORT=5185 node server.mjs で変更可）
-node test.mjs            # ロジック155項目（以前の小さい街・固定の出撃位置で回す）
+node test.mjs            # ロジック169項目（以前の小さい街・固定の出撃位置で回す）
 node sim.mjs 300         # CPU同士で試合を回す。初接触までの時間・勝率・決着時間・膠着（開幕は別に数える）・めり込み
 node shot.mjs fight      # 1シーンだけ撮る（title/play/fight/shoot/pad/hop/wall/bail/over/spectate/respawn/overtime/warn/ping/street/scale/meteora/hound/tele/cham/lowen/sky/
                          #   snipe-charge/snipe-shot/snipe-enemy/chars/chars-back、390x844 webkit、storm/snow で天候）
@@ -36,6 +36,15 @@ https://tmk4men.github.io/gear-squad/ （PC・スマホのブラウザ）
 - `sim.mjs` の stalls は撃ち合いが始まった後に20秒だれのENも動かない回数。開幕の接近中（まだ誰も会っていない）は openingQuiet に分けて数える
 - 狙撃は120mまで満額、そこから射程の端（240m）へ向けて威力が最大25%落ちる。CPU の狙撃は25mより遠いほどぶれる
 - 索敵: レーダー50m・目視70m。見えない敵の音がミニマップに出る。M（スマホはミニマップを押す）で全体地図
+
+## 協力（PvE）
+
+ホームの「協力」から。自分＋CPUの味方5人（12の型から前衛・中衛・狙撃・かく乱がそろうように組む）。舞台は市街地。
+
+- 大型の敵: 四つ脚の巨体グラムドーザ（オリジナル）を6分以内に倒す。部位はコア（弱点・2.4倍、膝をついている間はさらに1.8倍）・左右の腕砲（壊すと砲撃が止まる）・脚4本（2本壊すごとに7秒膝をつく）・胴（0.35倍）。技は腕砲の連射（砲口が光ってから）・踏みつけ（足元に赤い輪→衝撃波、跳べばかわせる）・光線（第2段階から。地面の赤い帯）。体力2/3で第2段階、1/3で第3段階（速くなる）
+- 防衛: 北から人型の敵が6ウェーブ押し寄せる。南の基地に着かれると耐久が減り、0で負け。種類は歩兵・走り・重装・射手・自爆。同時に出るのは64体まで（まとめて描き、遠くは手足を省く）
+- 6人がいっぺんに強制帰還すると負け。再出撃は10秒
+- `node _pve.mjs boss 20` / `node _pve.mjs defense 20` で CPU だけの勝率（2026-10-31: 大型の敵 47%・防衛 56%、各32試合）
 
 ## 操作
 
