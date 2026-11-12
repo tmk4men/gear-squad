@@ -2,10 +2,10 @@
 // 時間で進むものは全部固定60Hzステップの中で進める（draw では状態を描くだけ）。
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { buildCity } from './city.js?v=202610311322'
+import { buildCity } from './city.js?v=202611120332'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import * as G from './game.js?v=202610311322'
+import * as G from './game.js?v=202611120332'
 
 const $ = id => document.getElementById(id)
 const clamp01 = v => Math.max(0, Math.min(1, v))
@@ -304,7 +304,7 @@ const RUN_NATURAL = 2.51 * BODY_K
 const OVERLAYS = ['Jump', 'Punch', 'Death', 'Dance', 'ThumbsUp', 'Wave', 'Yes', 'No']
 
 async function loadRobot() {
-  robotGltf = await new GLTFLoader().loadAsync('./models/RobotExpressive.glb?v=202610311322')
+  robotGltf = await new GLTFLoader().loadAsync('./models/RobotExpressive.glb?v=202611120332')
 }
 
 // 見た目（自機だけ）: ヘルメットの形・戦闘服の色・バイザーの光。装甲の色は隊の見分けなので変えない
@@ -1633,6 +1633,7 @@ const nameOf = u => (u.player ? 'あなた' : u.name)
 
 // ================================================================ カメラ
 const CAM_DIST = 5.8, CAM_HEIGHT = 2.2, CAM_SHOULDER = 1.45
+const PORTRAIT_BACK = 0.9 // 縦画面は画角を広げた分、後ろへ下がる量を控えめに（下がりすぎると自機が小さく、壁で寄る回数も増える）
 let zoom = 0 // 0..1 狙撃のスコープ
 let fovKick = 0
 let portrait = false
@@ -1685,8 +1686,8 @@ function stepCamera(dt, st) {
     const zoomWant = mode === 'play' && me.alive && me.snipeT >= 0 ? Math.min(1, me.snipeT / G.sniperSpec(me).charge * 1.6) : 0
     aimAt = me.alive && G.uid(st, me.targetId) && G.uid(st, me.targetId).alive ? G.uid(st, me.targetId) : null
     zoom += (zoomWant - zoom) * Math.min(1, dt * (zoomWant > zoom ? 9 : 14))
-    const dist = (portrait ? CAM_DIST + 1.4 : CAM_DIST) * (1 - 0.45 * zoom)
-    const shoulder = (portrait ? 0.45 : CAM_SHOULDER) + 0.5 * zoom
+    const dist = (portrait ? CAM_DIST + PORTRAIT_BACK : CAM_DIST) * (1 - 0.45 * zoom)
+    const shoulder = portrait ? 0.45 + 0.95 * zoom : CAM_SHOULDER + 0.5 * zoom // 縦はのぞくと肩の外へ大きく出て、狭い横幅を自機で塞がない
     fwd3.set(Math.sin(camYaw) * Math.cos(camPitch), -Math.sin(camPitch), Math.cos(camYaw) * Math.cos(camPitch))
     right3.set(-Math.cos(camYaw), 0, Math.sin(camYaw))
     const origin = tmpV.copy(pivot).addScaledVector(right3, shoulder)
@@ -1746,7 +1747,7 @@ function fadeFollowed(f, d, dt) {
     // 映している機体はカメラとの距離、それ以外はカメラと映している機体の間に割り込んだときに透かす
     let want
     // スコープで寄っている間は自機を薄くして、狙う先を塞がない
-    if (v.id === f.id) want = Math.min(THREE.MathUtils.clamp((d - 0.9) / 1.6, 0.18, 1), 1 - 0.82 * zoom)
+    if (v.id === f.id) want = Math.min(THREE.MathUtils.clamp((d - 0.9) / 1.6, 0.18, 1), 1 - (portrait ? 0.9 : 0.82) * zoom)
     else {
       seg.set(camPos, tmpV.set(f.x, f.y + 1, f.z))
       const c = hitTmp.copy(v.root.position).setY(v.root.position.y + 1)
@@ -1966,16 +1967,12 @@ function setupTitle() {
   v0.overlayW = 1
 }
 
-// スマホ: 試合中に縦持ちなら横にするよう促す。Android は全画面にして横向きに固定する（iPhone のブラウザは固定できない）
-const portraitQ = matchMedia('(orientation: portrait)')
-function updateRotate() { $('rotate').hidden = !(isTouch && portraitQ.matches && mode === 'play') }
-portraitQ.addEventListener ? portraitQ.addEventListener('change', updateRotate) : portraitQ.addListener(updateRotate)
-function lockLandscape() {
-  if (!isTouch) return
+// スマホ: Android は試合の開始で全画面にする（縦でも横でも遊べるので向きは固定しない。iPhone のブラウザは全画面にできない）
+function goFullscreen() {
+  if (!isTouch || navigator.webdriver) return // 自動の検証では全画面にしない（窓の大きさを変えられなくなる）
   try {
     const el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen
-    const lock = () => { try { const p = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (p && p.catch) p.catch(() => {}) } catch {} }
-    if (req && !document.fullscreenElement) { const p = req.call(el); if (p && p.then) p.then(lock).catch(() => {}); else lock() } else lock()
+    if (req && !document.fullscreenElement) { const p = req.call(el); if (p && p.catch) p.catch(() => {}) }
   } catch {}
 }
 const PVE_REASON = { boss: 'グラムドーザを倒した', time: '時間切れ', wipe: '全員が強制帰還した', base: '基地が落ちた', waves: '全ウェーブを守り切った' }
@@ -1983,7 +1980,7 @@ const PVE_INFO = { boss: { name: '大型の敵', hint: '脚を2本壊すと膝�
 let pveMode = null // 協力のシナリオ（null は対戦）
 function startGame() {
   ensureAudio()
-  lockLandscape()
+  goFullscreen()
   if (mode === 'play') return
   const want = pveMode ? 'city' : stageKey // 協力の舞台は市街地
   if (builtStage !== want) buildStage(want, !pveMode)
@@ -2017,7 +2014,6 @@ function startGame() {
   $('dock').hidden = false
   $('me').hidden = false
   $('touch').hidden = !isTouch
-  setTimeout(updateRotate, 0)
   const me = state.units.find(u => u.player)
   camYaw = me.yaw
   camPitch = 0.16
@@ -2496,7 +2492,6 @@ function showPveResult(st) {
 }
 function showResult() {
   mode = 'result'
-  updateRotate()
   const st = state
   const head = $('resHead')
   $('resTitle').textContent = st.winner === -1 ? '引き分け' : st.winner === 0 ? (st.mode === 'pvp' ? '勝利' : '作戦成功') : (st.mode === 'pvp' ? '敗北' : '作戦失敗')
@@ -2620,12 +2615,14 @@ function frame(now) {
 }
 
 let baseFov = 62
+const PORTRAIT_HFOV = 50
 function resize() {
   const w = innerWidth, h = innerHeight
   renderer.setSize(w, h)
   camera.aspect = w / h
   portrait = w / h < 0.8
-  baseFov = portrait ? 72 : 62
+  // 縦画面は横幅が狭いので、横の見える角度（約50度）から縦の画角を決める。上下が伸びすぎないよう84度まで
+  baseFov = portrait ? THREE.MathUtils.clamp(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(PORTRAIT_HFOV / 2)) / (w / h)) * 180 / Math.PI, 62, 84) : 62
   camera.fov = baseFov * (1 - 0.55 * zoom)
   camera.updateProjectionMatrix()
 }

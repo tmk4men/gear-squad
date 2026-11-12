@@ -4,6 +4,7 @@ import { chromium, webkit } from 'playwright'
 import { spawn } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { MUTE_LAUNCH, muteContext } from './mute.mjs'
 const ROOT = import.meta.dirname
 const PORT = 5198
 const useWebkit = process.argv.includes('webkit')
@@ -16,8 +17,12 @@ const OUT = join(ROOT, '検証', 'playtest', (useWebkit ? 'webkit-' : 'chromium-
 await mkdir(OUT, { recursive: true })
 const server = spawn(process.execPath, ['server.mjs'], { cwd: ROOT, env: { ...process.env, PORT: String(PORT) } })
 await new Promise(r => setTimeout(r, 400))
-const browser = useWebkit ? await webkit.launch() : await chromium.launch({ channel: 'chromium', args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] })
-const page = await browser.newPage({ viewport: { width: W, height: H } })
+const browser = useWebkit ? await webkit.launch() : await chromium.launch({ channel: 'chromium', args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist', ...MUTE_LAUNCH.args] })
+// 縦の大きさ（または touch）ではスマホとして開く: タッチの操作ボタンが出た画面で、キー入力で遊ばせる
+const mobile = W < H || process.argv.includes('touch')
+const ctx = await browser.newContext({ viewport: { width: W, height: H }, ...(mobile ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}) })
+await muteContext(ctx)
+const page = await ctx.newPage()
 const errors = []
 page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') errors.push(`[${m.type()}] ${m.text()}`) })
 page.on('pageerror', e => errors.push('[pageerror] ' + e.message))
@@ -105,6 +110,7 @@ await page.screenshot({ path: join(OUT, '99-end.png') })
 const fps = await page.evaluate(() => new Promise(r => { let n = 0; const t = performance.now(); const f = () => { n++; if (performance.now() - t < 1000) requestAnimationFrame(f); else r(n) }; requestAnimationFrame(f) }))
 await writeFile(join(OUT, 'log.json'), JSON.stringify({ errors, anomalies, log }, null, 1))
 const last = log[log.length - 1]
-console.log(JSON.stringify({ shots: globalThis.shots || 0, out: OUT, samples: log.length, endMode: last.mode, t: last.st && last.st.t, score: last.st && last.st.score, me: last.st && last.st.units[0], fps, errors, anomalies: anomalies.slice(0, 10), anomalyCount: anomalies.length }, null, 1))
+const muted = await page.evaluate(() => window.__muteOk())
+console.log(JSON.stringify({ muted, shots: globalThis.shots || 0, out: OUT, samples: log.length, endMode: last.mode, t: last.st && last.st.t, score: last.st && last.st.score, me: last.st && last.st.units[0], fps, errors, anomalies: anomalies.slice(0, 10), anomalyCount: anomalies.length }, null, 1))
 await browser.close()
 server.kill()

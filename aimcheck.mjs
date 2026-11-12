@@ -1,17 +1,21 @@
-// 狙撃の着弾が画面中央の照準からどれだけずれるかを測る。node aimcheck.mjs [city|harbor|mall]
+// 狙撃の着弾が画面中央の照準からどれだけずれるかを測る。node aimcheck.mjs [city|harbor|mall] [幅x高さ]（縦画面は 390x844 など）
 import { chromium } from 'playwright'
 import { spawn } from 'node:child_process'
+import { MUTE_LAUNCH, muteContext } from './mute.mjs'
 const ROOT = import.meta.dirname, PORT = 5199
-const stage = process.argv[2] || 'city'
+const stage = process.argv.slice(2).find(a => ['city', 'harbor', 'mall'].includes(a)) || 'city'
+const [W, H] = (process.argv.find(a => /^\d+x\d+$/.test(a)) || '1280x800').split('x').map(Number)
 const server = spawn(process.execPath, ['server.mjs'], { cwd: ROOT, env: { ...process.env, PORT: String(PORT) } })
 await new Promise(r => setTimeout(r, 400))
-const browser = await chromium.launch()
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+const browser = await chromium.launch(MUTE_LAUNCH)
+const ctx = await browser.newContext({ viewport: { width: W, height: H } })
+await muteContext(ctx)
+const page = await ctx.newPage()
 page.on('pageerror', e => console.log('[pageerror]', e.message))
 await page.addInitScript(st => { try { localStorage.setItem('ts-loadout', 'sniper'); localStorage.setItem('ts-stage', st) } catch {} }, stage)
 await page.goto(`http://localhost:${PORT}/`)
 await page.waitForFunction(() => window.__tsReady, null, { timeout: 20000 })
-const res = await page.evaluate(async () => {
+const res = await page.evaluate(async ([W, H]) => {
   window.__tsNoAuto = true
   ts.start({ loadout: 'sniper' })
   await new Promise(r => setTimeout(r, 300))
@@ -50,10 +54,10 @@ const res = await page.evaluate(async () => {
     const p = new THREE.Vector3(ev.hx, ev.hy, ev.hz).project(camAt)
     const ap = me.aimPoint
     const cam = camAt.position
-    out.push({ i, px: Math.round(p.x * 640), py: Math.round(-p.y * 400), dist: +Math.hypot(ev.hx - cam.x, ev.hy - cam.y, ev.hz - cam.z).toFixed(1), aimDist: ap ? +Math.hypot(ap.x - cam.x, ap.y - cam.y, ap.z - cam.z).toFixed(1) : -1, me: [me.x.toFixed(1), me.y.toFixed(1), me.z.toFixed(1)].join(','), cam: [cam.x.toFixed(1), cam.y.toFixed(1), cam.z.toFixed(1)].join(','), inside: ts.camInside() })
+    out.push({ i, px: Math.round(p.x * W / 2), py: Math.round(-p.y * H / 2), dist: +Math.hypot(ev.hx - cam.x, ev.hy - cam.y, ev.hz - cam.z).toFixed(1), aimDist: ap ? +Math.hypot(ap.x - cam.x, ap.y - cam.y, ap.z - cam.z).toFixed(1) : -1, me: [me.x.toFixed(1), me.y.toFixed(1), me.z.toFixed(1)].join(','), cam: [cam.x.toFixed(1), cam.y.toFixed(1), cam.z.toFixed(1)].join(','), inside: ts.camInside() })
   }
   return out
-})
+}, [W, H])
 const foes = res.filter(r => r.foe)
 console.log(stage, 'foe shots', foes.length, 'hit', foes.filter(r => r.hit).length)
 for (const r of foes.filter(r => !r.hit)) console.log(JSON.stringify(r))
@@ -61,6 +65,6 @@ const plain = res.filter(r => !r.none && !r.foe)
 const wall = plain.filter(r => r.aimDist < 5)
 console.log(stage, 'aim on wall next to me', wall.length)
 const bad = plain.filter(r => r.aimDist >= 5 && Math.hypot(r.px, r.py) > 12)
-console.log(stage, 'shots', res.filter(r => !r.none).length, 'none', res.filter(r => r.none).length, 'off>12px', bad.length)
+console.log(stage, `${W}x${H}`, 'shots', res.filter(r => !r.none).length, 'none', res.filter(r => r.none).length, 'off>12px', bad.length)
 for (const r of bad.slice(0, 25)) console.log(JSON.stringify(r))
 await browser.close(); server.kill()

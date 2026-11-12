@@ -1,4 +1,4 @@
-// ロジックの検証。node test.mjs
+// ロジックの検証。node test.mjs（最後に画面の検証 portrait.mjs も回す。外すなら node test.mjs nolayout）
 import * as G from './src/game.js'
 let pass = 0, fail = 0
 // テストは以前の小さい街・固定の出撃位置で回す（地形を作り直しても検査の前提がずれない）
@@ -901,6 +901,15 @@ for (const mode of ['boss', 'defense']) for (const seed of [9600, 9601]) {
     for (const f of st.foes) if (![f.x, f.y, f.z].every(Number.isFinite)) nan++
   }
   ok(st.phase === 'over' && (st.winner === 0 || st.winner === 1) && !nan && !stuck && foesMax <= G.FOE_MAX, `協力「${mode}」をCPUだけで最後まで回せる（seed ${seed}）`, `勝者=${st.winner} 理由=${st.endReason} ${st.t.toFixed(0)}秒 NaN=${nan} めり込み=${stuck} 敵最大=${foesMax}`)
+}
+// 画面の検証（スマホの縦3サイズ・横2サイズ × 全画面のはみ出し・ボタンの重なり・タッチ領域・回転・X のアプリ内）。WebKit で portrait.mjs を回して数に足す。
+// ロジックだけ見たい時は node test.mjs nolayout
+if (!process.argv.includes('nolayout')) {
+  const { spawnSync } = await import('node:child_process')
+  const r = spawnSync(process.execPath, ['portrait.mjs', 'webkit'], { cwd: import.meta.dirname, encoding: 'utf8', timeout: 900000 })
+  const lines = (r.stdout || '').split('\n').filter(l => /^(OK|FAIL)/.test(l))
+  for (const l of lines) { if (l.startsWith('OK')) pass++; else { fail++; console.log(l) } }
+  ok(lines.length > 300 && r.status === 0, `画面の検証（portrait.mjs）${lines.length}項目`, (r.stderr || '').slice(0, 300))
 }
 console.log(`\n${pass} OK / ${fail} FAIL`)
 process.exit(fail ? 1 : 0)

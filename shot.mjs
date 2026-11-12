@@ -3,6 +3,7 @@ import { chromium, webkit } from 'playwright'
 import { spawn } from 'node:child_process'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import { MUTE_LAUNCH, muteContext } from './mute.mjs'
 const ROOT = import.meta.dirname
 const scene = process.argv[2] || 'title'
 const size = process.argv.find(a => /^\d+x\d+$/.test(a)) || '1280x800'
@@ -12,8 +13,9 @@ const PORT = 5196
 await mkdir(join(ROOT, '検証'), { recursive: true })
 const server = spawn(process.execPath, ['server.mjs'], { cwd: ROOT, env: { ...process.env, PORT: String(PORT) } })
 await new Promise(r => setTimeout(r, 400))
-const browser = useWebkit ? await webkit.launch() : await chromium.launch({ channel: 'chromium', args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] })
+const browser = useWebkit ? await webkit.launch() : await chromium.launch({ channel: 'chromium', args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist', ...MUTE_LAUNCH.args] })
 const ctx = await browser.newContext({ viewport: { width: W, height: H }, ...(useWebkit && (W < H || process.argv.includes('touch')) ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}) })
+await muteContext(ctx)
 const page = await ctx.newPage()
 const errs = []
 page.on('console', m => { if (m.type() === 'error') errs.push(m.text()) })

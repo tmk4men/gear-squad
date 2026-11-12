@@ -5,7 +5,9 @@
 
 ```bash
 node server.mjs          # http://localhost:5180 で遊ぶ（PORT=5185 node server.mjs で変更可）
-node test.mjs            # ロジック169項目（以前の小さい街・固定の出撃位置で回す）
+node test.mjs            # ロジック169項目（以前の小さい街・固定の出撃位置で回す）＋画面の検証（portrait.mjs）。ロジックだけなら nolayout
+node portrait.mjs [chromium] [shots] [only=390x844,rotate,inapp]  # 縦3サイズ・横2サイズ×全画面のはみ出し・重なり・44px・回転・Xのアプリ内（?inapp=x）。shots で 検証/portrait/
+node aimcheck.mjs [city|harbor|mall] [390x844]  # 狙撃の着弾と照準のずれ（縦の大きさでも）
 node sim.mjs 300         # CPU同士で試合を回す。初接触までの時間・勝率・決着時間・膠着（開幕は別に数える）・めり込み
 node shot.mjs fight      # 1シーンだけ撮る（title/play/fight/shoot/pad/hop/wall/bail/over/spectate/respawn/overtime/warn/ping/street/scale/meteora/hound/tele/cham/lowen/sky/
                          #   snipe-charge/snipe-shot/snipe-enemy/chars/chars-back、390x844 webkit、storm/snow で天候）
@@ -30,7 +32,7 @@ https://tmk4men.github.io/gear-squad/ （PC・スマホのブラウザ）
 - ステージ: 市街地（高層ビルは壁のベランダを伝って登る）/ 港湾倉庫街（コンテナの高台・倉庫・岸壁）/ ショッピングモール（256m×192m・3階建て。中で戦う。床は下から抜けない天井、階段は歩いて上れて各階へ4か所、吹き抜け・店・柱・植え込み・広告板）。天候3種。高さ26m以下の建物は撃つと崩れる
 - 第六感（1つ選ぶ）: 鷹の目（レーダー65m）/ 再起（再出撃5秒）/ 精密（頭1.3倍）/ 逆境（EN3割未満で攻撃+20%・足+10%）
 - ミラージュは敵から完全に消える（影・名札・音の印も無し）。手がかりはミニマップの点と、撃たれた・ダッシュした瞬間のゆらめきだけ
-- スマホは横画面。縦に持つと案内が出る（Android は全画面で横に固定）
+- スマホは縦でも横でも遊べる（試合中に回しても配置とカメラが追従。Android は開始で全画面）。縦は横の見える角度が約50度になるよう画角を広げ、操作は右手の親指の扇に並べ直す
 - CPU は12の型から試合ごとに組む（前衛: 切り込み・押し込み・突撃／中衛: 撃ち合い・曲射・追尾／狙撃: 陣取り狙撃・移動狙撃・一撃狙撃／かく乱: 消える奇襲・足止め・待ち伏せ）。1隊に狙撃は1人まで、近くで戦える人を必ず1人、同じ型は重ねない。型ごとに保つ間合い・距離での持ち替え（狙撃型は寄られたら銃、押し込み型は目の前で刃）・補助の使い方（マントで寄る、ミラージュで背後へ回る、ブリンクで詰める／逃げる）が違う。名札は型の名前。`node _styles.mjs 30` で型ごとの撃破・被撃破を見る
 - 前衛の切り込み・押し込みは、弱っていて孤立した相手を選ぶ。切り込みは相手が固まっていて味方が近くにいなければ最長5秒は間合いの外で待つ。囲まれて削られたらブリンクで抜ける。斬って弾いた相手には踏み込みで詰め直す
 - `sim.mjs` の stalls は撃ち合いが始まった後に20秒だれのENも動かない回数。開幕の接近中（まだ誰も会っていない）は openingQuiet に分けて数える
@@ -82,6 +84,8 @@ https://tmk4men.github.io/gear-squad/ （PC・スマホのブラウザ）
 | `src/city.js` | 街の見た目（建物の壁・屋上・路面・小物・外周・遠景）。当たり判定は持たない |
 | `src/main.js` | 描画・アニメ・入力・HUD・音（合成）・検証用 `window.ts` |
 | `index.html` | HUD・タイトル・結果・タッチ操作・起動失敗の保険表示 |
+| `inapp.js` | X（旧Twitter）のアプリ内ブラウザで下の帯に隠れないよう `--inapp-bot` を付ける（_shared/support.js の先頭の塊） |
+| `mute.mjs` | 検証スクリプトの音止め（全スクリプトで使う） |
 | `models/RobotExpressive.glb` | three.js 公式サンプルの CC0 ロボ。`SkeletonUtils.clone` で6体、隊の色に塗り替え |
 
 ## 数値の決め方
